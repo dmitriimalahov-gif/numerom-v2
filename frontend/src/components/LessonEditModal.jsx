@@ -419,16 +419,33 @@ const LessonEditModal = ({
   // Парсеры для разных типов контента
   const parseTheoryFromText = (text) => {
     const blocks = [];
-    const sections = text.split(/\n\n+/);
+    // Разделяем по линиям-разделителям (─────) или двойным переносам
+    const sections = text.split(/───+|═══+|\n\n\n+/);
     
     sections.forEach((section, index) => {
-      const lines = section.trim().split('\n');
-      if (lines.length > 0) {
+      const trimmed = section.trim();
+      if (!trimmed || trimmed.length < 3) return;
+      
+      const lines = trimmed.split('\n').filter(l => l.trim());
+      if (lines.length === 0) return;
+      
+      // Первая строка - заголовок (может быть в верхнем регистре или с #)
+      let title = lines[0].replace(/^#+\s*/, '').trim();
+      
+      // Пропускаем общий заголовок урока (УРОК N — ...)
+      if (title.match(/^УРОК\s+\d+\s*—/i) || title.match(/^РАЗДЕЛ\s+\d+/i)) {
+        return;
+      }
+      
+      // Содержание - все остальные строки
+      const content = lines.slice(1).join('\n').trim();
+      
+      if (content) {
         blocks.push({
           id: `theory_${Date.now()}_${index}`,
-          title: lines[0].replace(/^#+\s*/, ''),
-          content: lines.slice(1).join('\n').trim(),
-          order: index
+          title: title,
+          content: content,
+          order: blocks.length
         });
       }
     });
@@ -438,22 +455,99 @@ const LessonEditModal = ({
 
   const parseExercisesFromText = (text) => {
     const exercises = [];
-    const exerciseBlocks = text.split(/УПРАЖНЕНИЕ \d+:/i).filter(Boolean);
+    // Разделяем по линиям-разделителям
+    const sections = text.split(/───+|═══+/).filter(s => s.trim());
     
-    exerciseBlocks.forEach((block, index) => {
-      const lines = block.trim().split('\n');
-      const title = lines[0].trim();
-      const content = lines.slice(1).join('\n').trim();
+    sections.forEach((section, index) => {
+      const trimmed = section.trim();
+      if (!trimmed || trimmed.length < 10) return;
       
-      exercises.push({
-        id: `exercise_${Date.now()}_${index}`,
-        title: title || `Упражнение ${index + 1}`,
-        description: content.substring(0, 200),
-        instructions: content,
-        expected_outcome: '',
-        type: 'reflection',
-        order: index
+      // Пропускаем заголовок урока и раздела
+      if (trimmed.match(/^УРОК\s+\d+\s*—/i) || trimmed.match(/^РАЗДЕЛ\s+\d+/i)) {
+        return;
+      }
+      
+      const lines = trimmed.split('\n').map(l => l.trim()).filter(Boolean);
+      if (lines.length === 0) return;
+      
+      // Ищем структуру: Номер. Название: ... Тип: ... Содержание: ... Инструкция: ... Ожидаемый результат:
+      let title = '';
+      let type = 'reflection';
+      let description = '';
+      let instructions = '';
+      let expectedOutcome = '';
+      
+      let currentSection = '';
+      let currentContent = [];
+      
+      lines.forEach(line => {
+        // Определяем секции
+        if (line.match(/^\d+\.\s*Название:/i)) {
+          title = line.replace(/^\d+\.\s*Название:\s*/i, '').trim();
+          currentSection = 'title';
+        } else if (line.match(/^Тип:/i)) {
+          const typeText = line.replace(/^Тип:\s*/i, '').trim().toLowerCase();
+          // Определяем тип упражнения
+          if (typeText.includes('расчёт') || typeText.includes('расчет')) type = 'practice';
+          else if (typeText.includes('анализ')) type = 'analysis';
+          else if (typeText.includes('практик')) type = 'practice';
+          else if (typeText.includes('психолог')) type = 'reflection';
+          else if (typeText.includes('энергет')) type = 'practice';
+          else if (typeText.includes('духов')) type = 'reflection';
+          currentSection = 'type';
+        } else if (line.match(/^Содержание:/i)) {
+          currentSection = 'content';
+          currentContent = [];
+        } else if (line.match(/^Инструкция:/i)) {
+          if (currentSection === 'content') {
+            description = currentContent.join('\n').trim();
+          }
+          currentSection = 'instructions';
+          currentContent = [];
+        } else if (line.match(/^Ожидаемый результат:/i)) {
+          if (currentSection === 'instructions') {
+            instructions = currentContent.join('\n').trim();
+          }
+          currentSection = 'outcome';
+          currentContent = [];
+        } else if (line.match(/^Интерпретация:/i)) {
+          // Интерпретация - часть содержания
+          if (currentSection === 'content') {
+            currentContent.push('\n**Интерпретация:**');
+          }
+          currentContent.push(line.replace(/^Интерпретация:\s*/i, ''));
+        } else {
+          // Добавляем строку к текущей секции
+          currentContent.push(line);
+        }
       });
+      
+      // Сохраняем последнюю секцию
+      if (currentSection === 'content') {
+        description = currentContent.join('\n').trim();
+      } else if (currentSection === 'instructions') {
+        instructions = currentContent.join('\n').trim();
+      } else if (currentSection === 'outcome') {
+        expectedOutcome = currentContent.join('\n').trim();
+      }
+      
+      // Если нет инструкций, но есть содержание - используем содержание как инструкции
+      if (!instructions && description) {
+        instructions = description;
+        description = description.substring(0, 200) + (description.length > 200 ? '...' : '');
+      }
+      
+      if (title && instructions) {
+        exercises.push({
+          id: `exercise_${Date.now()}_${index}`,
+          title: title,
+          description: description || instructions.substring(0, 200),
+          instructions: instructions,
+          expected_outcome: expectedOutcome,
+          type: type,
+          order: exercises.length
+        });
+      }
     });
     
     return exercises;
@@ -461,31 +555,80 @@ const LessonEditModal = ({
 
   const parseChallengeFromText = (text) => {
     const lines = text.split('\n');
-    const title = lines[0]?.replace(/^#+\s*/, '') || 'Новый челлендж';
-    const description = lines[1] || '';
+    
+    // Ищем заголовок челленджа (обычно в кавычках или после ЧЕЛЛЕНДЖ)
+    let title = 'Челлендж';
+    let description = '';
+    
+    // Ищем строку с ЧЕЛЛЕНДЖ «...»
+    for (let i = 0; i < Math.min(10, lines.length); i++) {
+      const line = lines[i].trim();
+      if (line.match(/ЧЕЛЛЕНДЖ\s*[«"]/i)) {
+        const match = line.match(/ЧЕЛЛЕНДЖ\s*[«"]([^»"]+)[»"]/i);
+        if (match) {
+          title = match[1];
+        }
+      } else if (line.match(/^Описание:/i)) {
+        // Собираем описание до первого разделителя
+        let descLines = [];
+        for (let j = i + 1; j < lines.length; j++) {
+          if (lines[j].match(/───+|═══+/)) break;
+          descLines.push(lines[j].trim());
+        }
+        description = descLines.filter(Boolean).join(' ');
+        break;
+      }
+    }
     
     const dailyTasks = [];
     let currentDay = null;
     
-    lines.forEach(line => {
-      const dayMatch = line.match(/День (\d+):/i);
-      if (dayMatch) {
-        if (currentDay) dailyTasks.push(currentDay);
+    lines.forEach((line, index) => {
+      const trimmed = line.trim();
+      
+      // Ищем дни недели в верхнем регистре (ПОНЕДЕЛЬНИК, ВТОРНИК и т.д.)
+      const dayOfWeekMatch = trimmed.match(/^(ПОНЕДЕЛЬНИК|ВТОРНИК|СРЕДА|ЧЕТВЕРГ|ПЯТНИЦА|СУББОТА|ВОСКРЕСЕНЬЕ)\s*[—–-]\s*(.+)/i);
+      
+      if (dayOfWeekMatch) {
+        // Сохраняем предыдущий день
+        if (currentDay) {
+          dailyTasks.push(currentDay);
+        }
+        
+        // Определяем номер дня по дню недели (для 7-дневного челленджа)
+        const dayNames = ['ВОСКРЕСЕНЬЕ', 'ПОНЕДЕЛЬНИК', 'ВТОРНИК', 'СРЕДА', 'ЧЕТВЕРГ', 'ПЯТНИЦА', 'СУББОТА'];
+        const dayName = dayOfWeekMatch[1].toUpperCase();
+        const dayNumber = dayNames.indexOf(dayName) >= 0 ? dayNames.indexOf(dayName) : dailyTasks.length + 1;
+        
         currentDay = {
-          day: parseInt(dayMatch[1]),
-          title: line.replace(/День \d+:\s*/i, ''),
+          day: dailyTasks.length + 1, // Порядковый номер
+          title: dayOfWeekMatch[2].trim(),
           description: '',
           tasks: [],
           completed: false
         };
-      } else if (currentDay && line.trim().startsWith('-')) {
-        currentDay.tasks.push(line.replace(/^-\s*/, '').trim());
-      } else if (currentDay && line.trim()) {
-        currentDay.description += line.trim() + ' ';
+      } else if (currentDay && trimmed.match(/^\d+\./)) {
+        // Задачи начинаются с номера (1., 2., 3.)
+        const task = trimmed.replace(/^\d+\.\s*/, '').trim();
+        if (task) {
+          currentDay.tasks.push(task);
+        }
+      } else if (currentDay && !trimmed.match(/───+|═══+/) && trimmed.length > 0) {
+        // Добавляем к описанию дня (если это не разделитель)
+        if (!trimmed.match(/^УРОК\s+\d+/i) && !trimmed.match(/^РАЗДЕЛ/i) && !trimmed.match(/^РЕЗУЛЬТАТ:/i)) {
+          if (currentDay.description) {
+            currentDay.description += ' ' + trimmed;
+          } else {
+            currentDay.description = trimmed;
+          }
+        }
       }
     });
     
-    if (currentDay) dailyTasks.push(currentDay);
+    // Сохраняем последний день
+    if (currentDay) {
+      dailyTasks.push(currentDay);
+    }
     
     return {
       id: `challenge_${Date.now()}`,
@@ -500,32 +643,98 @@ const LessonEditModal = ({
 
   const parseQuizFromText = (text) => {
     const lines = text.split('\n');
-    const title = lines[0]?.replace(/^#+\s*/, '') || 'Новый тест';
-    const description = lines[1] || '';
+    
+    // Ищем заголовок теста
+    let title = 'Тест';
+    let description = '';
+    
+    for (let i = 0; i < Math.min(10, lines.length); i++) {
+      const line = lines[i].trim();
+      if (line.match(/^УРОК\s+\d+\s*—/i)) {
+        // Извлекаем название из заголовка урока
+        const match = line.match(/—\s*(.+?)(?:\s*•|$)/);
+        if (match) {
+          title = `Тест: ${match[1].trim()}`;
+        }
+      } else if (line.match(/^РАЗДЕЛ\s+\d+\.\s*ТЕСТ/i)) {
+        continue;
+      } else if (line.match(/^Каждый вопрос/i) || line.match(/^Выберите/i)) {
+        description = line;
+        break;
+      }
+    }
     
     const questions = [];
     let currentQuestion = null;
+    let inAnswersSection = false;
+    const correctAnswers = {};
     
-    lines.forEach(line => {
-      const questionMatch = line.match(/^\d+\.\s*(.+)/);
-      if (questionMatch) {
-        if (currentQuestion) questions.push(currentQuestion);
+    lines.forEach((line, index) => {
+      const trimmed = line.trim();
+      
+      // Проверяем секцию с ответами
+      if (trimmed.match(/^ОТВЕТЫ:/i)) {
+        inAnswersSection = true;
+        // Ищем строку с ответами (формат: 1–C, 2–A, 3–C...)
+        if (index + 1 < lines.length) {
+          const answersLine = lines[index + 1].trim();
+          // Парсим ответы вида "1–C, 2–A, 3–C"
+          const answerPairs = answersLine.split(',');
+          answerPairs.forEach(pair => {
+            const match = pair.trim().match(/(\d+)[–-]([A-E])/i);
+            if (match) {
+              correctAnswers[parseInt(match[1])] = match[2].toUpperCase();
+            }
+          });
+        }
+        return;
+      }
+      
+      if (inAnswersSection) return;
+      
+      // Ищем вопросы (формат: 1. Текст вопроса?)
+      const questionMatch = trimmed.match(/^(\d+)\.\s*(.+)/);
+      if (questionMatch && !trimmed.match(/^───+/)) {
+        // Сохраняем предыдущий вопрос
+        if (currentQuestion) {
+          questions.push(currentQuestion);
+        }
+        
+        const questionNum = parseInt(questionMatch[1]);
         currentQuestion = {
-          id: `q${questions.length + 1}`,
-          question: questionMatch[1],
+          id: `q${questionNum}`,
+          question: questionMatch[2].trim(),
           type: 'multiple_choice',
           options: [],
           correct_answer: '',
           explanation: '',
           points: 10
         };
-      } else if (currentQuestion && line.trim().match(/^[а-яА-Яa-zA-Z]\)|^-/)) {
-        const option = line.replace(/^[а-яА-Яa-zA-Z]\)\s*|^-\s*/, '').trim();
-        if (option) currentQuestion.options.push(option);
+      } else if (currentQuestion && trimmed.match(/^[A-E]\./i)) {
+        // Варианты ответа (формат: A. Текст ответа)
+        const option = trimmed.replace(/^[A-E]\.\s*/i, '').trim();
+        if (option) {
+          currentQuestion.options.push(option);
+        }
       }
     });
     
-    if (currentQuestion) questions.push(currentQuestion);
+    // Сохраняем последний вопрос
+    if (currentQuestion) {
+      questions.push(currentQuestion);
+    }
+    
+    // Устанавливаем правильные ответы
+    questions.forEach((q, index) => {
+      const questionNum = index + 1;
+      if (correctAnswers[questionNum]) {
+        const answerLetter = correctAnswers[questionNum];
+        const answerIndex = answerLetter.charCodeAt(0) - 'A'.charCodeAt(0);
+        if (answerIndex >= 0 && answerIndex < q.options.length) {
+          q.correct_answer = q.options[answerIndex];
+        }
+      }
+    });
     
     return {
       id: `quiz_${Date.now()}`,
