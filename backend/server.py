@@ -901,11 +901,19 @@ async def save_challenge_progress(
         completed = request.completed
         user_id = current_user.get('user_id', current_user.get('id', 'unknown'))
         
-        # Проверяем существующий прогресс
+        # Получаем урок для определения длительности челленджа и баллов
+        lesson = await db.lessons_v2.find_one({"id": lesson_id})
+        challenge = lesson.get("challenge", {}) if lesson else {}
+        total_days = challenge.get("duration_days", 7)
+        points_per_day = challenge.get("points_per_day", 10)  # Баллы за день
+        bonus_points = challenge.get("bonus_points", 50)  # Бонус за завершение
+        
+        # Проверяем существующий АКТИВНЫЙ прогресс (незавершенный)
         existing_progress = await db.challenge_progress.find_one({
             "user_id": user_id,
             "lesson_id": lesson_id,
-            "challenge_id": challenge_id
+            "challenge_id": challenge_id,
+            "is_completed": False
         })
         
         if existing_progress:
@@ -939,12 +947,21 @@ async def save_challenge_progress(
             # Определяем текущий день (максимальный завершенный + 1)
             current_day = max(completed_days) + 1 if completed_days else 1
             
-            # Получаем урок для определения длительности челленджа
-            lesson = await db.lessons_v2.find_one({"id": lesson_id})
-            challenge = lesson.get("challenge", {}) if lesson else {}
-            total_days = challenge.get("duration_days", 7)
-            
             is_completed = len(completed_days) >= total_days
+            
+            # Подсчет баллов
+            points_earned = 0
+            if is_completed:
+                points_earned = (len(completed_days) * points_per_day) + bonus_points
+            else:
+                points_earned = len(completed_days) * points_per_day
+            
+            # Получаем номер попытки
+            total_attempts = await db.challenge_progress.count_documents({
+                "user_id": user_id,
+                "lesson_id": lesson_id,
+                "challenge_id": challenge_id
+            })
             
             await db.challenge_progress.update_one(
                 {"_id": existing_progress["_id"]},
@@ -953,7 +970,9 @@ async def save_challenge_progress(
                     "completed_days": completed_days,
                     "daily_notes": daily_notes,
                     "is_completed": is_completed,
-                    "completed_at": datetime.utcnow() if is_completed else None
+                    "completed_at": datetime.utcnow() if is_completed else None,
+                    "points_earned": points_earned,
+                    "attempt_number": total_attempts
                 }}
             )
             
@@ -961,7 +980,16 @@ async def save_challenge_progress(
             await update_lesson_progress_with_challenge(user_id, lesson_id, is_completed)
             
         else:
-            # Создаем новый прогресс
+            # Получаем номер попытки
+            total_attempts = await db.challenge_progress.count_documents({
+                "user_id": user_id,
+                "lesson_id": lesson_id,
+                "challenge_id": challenge_id
+            })
+            
+            # Создаем новый прогресс (новая попытка)
+            points_earned = points_per_day if completed else 0
+            
             progress_data = {
                 "id": str(uuid.uuid4()),
                 "user_id": user_id,
@@ -976,7 +1004,9 @@ async def save_challenge_progress(
                 }],
                 "is_completed": False,
                 "started_at": datetime.utcnow(),
-                "completed_at": None
+                "completed_at": None,
+                "points_earned": points_earned,
+                "attempt_number": total_attempts + 1
             }
             await db.challenge_progress.insert_one(progress_data)
         
@@ -1001,35 +1031,135 @@ async def get_challenge_progress(
     challenge_id: str,
     current_user: dict = Depends(get_current_user)
 ):
-    """Получить прогресс студента по челленджу"""
+    """Получить текущий прогресс студента по челленджу"""
     try:
         user_id = current_user.get('user_id', current_user.get('id', 'unknown'))
         
+        # Ищем активный (незавершенный) прогресс или последний прогресс
         progress = await db.challenge_progress.find_one({
+            "user_id": user_id,
+            "lesson_id": lesson_id,
+            "challenge_id": challenge_id,
+            "is_completed": False
+        })
+        
+        # Если нет активного, берем последний завершенный
+        if not progress:
+            progress_cursor = db.challenge_progress.find({
+                "user_id": user_id,
+                "lesson_id": lesson_id,
+                "challenge_id": challenge_id
+            }).sort("started_at", -1).limit(1)
+            
+            progress_list = await progress_cursor.to_list(length=1)
+            progress = progress_list[0] if progress_list else None
+        
+        if not progress:
+            # Получаем количество прохождений
+            total_attempts = await db.challenge_progress.count_documents({
+                "user_id": user_id,
+                "lesson_id": lesson_id,
+                "challenge_id": challenge_id
+            })
+            
+            return {
+                "current_day": 1,
+                "completed_days": [],
+                "daily_notes": [],
+                "is_completed": False,
+                "attempt_number": total_attempts + 1,
+                "total_attempts": total_attempts,
+                "total_points": 0
+            }
+        
+        # Получаем общее количество прохождений
+        total_attempts = await db.challenge_progress.count_documents({
             "user_id": user_id,
             "lesson_id": lesson_id,
             "challenge_id": challenge_id
         })
         
-        if not progress:
-            return {
-                "current_day": 1,
-                "completed_days": [],
-                "daily_notes": [],
-                "is_completed": False
-            }
+        # Получаем сумму баллов за все прохождения
+        pipeline = [
+            {"$match": {
+                "user_id": user_id,
+                "lesson_id": lesson_id,
+                "challenge_id": challenge_id,
+                "is_completed": True
+            }},
+            {"$group": {
+                "_id": None,
+                "total_points": {"$sum": "$points_earned"}
+            }}
+        ]
+        points_result = await db.challenge_progress.aggregate(pipeline).to_list(length=1)
+        total_points = points_result[0]["total_points"] if points_result else 0
         
         return {
             "current_day": progress.get("current_day", 1),
             "completed_days": progress.get("completed_days", []),
             "daily_notes": progress.get("daily_notes", []),
             "is_completed": progress.get("is_completed", False),
-            "started_at": progress.get("started_at").isoformat() if progress.get("started_at") else None
+            "started_at": progress.get("started_at").isoformat() if progress.get("started_at") else None,
+            "attempt_number": total_attempts,
+            "total_attempts": total_attempts,
+            "points_earned": progress.get("points_earned", 0),
+            "total_points": total_points
         }
         
     except Exception as e:
         logger.error(f"Error getting challenge progress: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Ошибка при получении прогресса: {str(e)}")
+
+
+@app_v2.get("/api/student/challenge-history/{lesson_id}/{challenge_id}")
+async def get_challenge_history(
+    lesson_id: str,
+    challenge_id: str,
+    current_user: dict = Depends(get_current_user)
+):
+    """Получить историю всех прохождений челленджа студентом"""
+    try:
+        user_id = current_user.get('user_id', current_user.get('id', 'unknown'))
+        
+        # Получаем все прохождения
+        attempts_cursor = db.challenge_progress.find({
+            "user_id": user_id,
+            "lesson_id": lesson_id,
+            "challenge_id": challenge_id
+        }).sort("started_at", -1)  # Новые первые
+        
+        attempts = await attempts_cursor.to_list(length=None)
+        
+        # Форматируем данные
+        formatted_attempts = []
+        total_points = 0
+        
+        for attempt in attempts:
+            points = attempt.get("points_earned", 0)
+            total_points += points
+            
+            formatted_attempts.append({
+                "id": attempt.get("id"),
+                "attempt_number": attempt.get("attempt_number", 0),
+                "completed_days": attempt.get("completed_days", []),
+                "is_completed": attempt.get("is_completed", False),
+                "points_earned": points,
+                "started_at": attempt.get("started_at").isoformat() if attempt.get("started_at") else None,
+                "completed_at": attempt.get("completed_at").isoformat() if attempt.get("completed_at") else None
+            })
+        
+        return {
+            "lesson_id": lesson_id,
+            "challenge_id": challenge_id,
+            "total_attempts": len(attempts),
+            "total_points": total_points,
+            "attempts": formatted_attempts
+        }
+        
+    except Exception as e:
+        logger.error(f"Error getting challenge history: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Ошибка при получении истории: {str(e)}")
 
 
 async def update_lesson_progress_with_challenge(user_id: str, lesson_id: str, challenge_completed: bool):

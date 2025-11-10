@@ -51,10 +51,11 @@ db.quiz_attempts.createIndex({ "started_at": -1 });
 db.quiz_attempts.createIndex({ "completed_at": -1 });
 
 // ===== КОЛЛЕКЦИЯ: challenge_progress =====
-// Хранит прогресс студентов по челленджам
+// Хранит прогресс студентов по челленджам (множественные попытки)
 print("Creating indexes for challenge_progress...");
 db.challenge_progress.createIndex({ "id": 1 }, { unique: true });
-db.challenge_progress.createIndex({ "user_id": 1, "lesson_id": 1, "challenge_id": 1 }, { unique: true });
+// УДАЛЕН уникальный индекс для множественных попыток
+db.challenge_progress.createIndex({ "user_id": 1, "lesson_id": 1, "challenge_id": 1 });
 db.challenge_progress.createIndex({ "user_id": 1 });
 db.challenge_progress.createIndex({ "lesson_id": 1 });
 db.challenge_progress.createIndex({ "challenge_id": 1 });
@@ -62,6 +63,8 @@ db.challenge_progress.createIndex({ "is_completed": 1 });
 db.challenge_progress.createIndex({ "current_day": 1 });
 db.challenge_progress.createIndex({ "started_at": -1 });
 db.challenge_progress.createIndex({ "completed_at": -1 });
+db.challenge_progress.createIndex({ "attempt_number": 1 });
+db.challenge_progress.createIndex({ "points_earned": -1 });
 
 // ===== КОЛЛЕКЦИЯ: student_analytics =====
 // Хранит общую аналитику по студентам

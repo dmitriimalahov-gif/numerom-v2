@@ -294,13 +294,21 @@ const LearningSystemV2 = () => {
     }
   };
 
-  // Сброс челленджа для повторного прохождения
-  const restartChallenge = () => {
-    setChallengeProgress(null);
-    setChallengeNotes({});
-    // Перезагружаем данные челленджа
-    if (currentLesson && currentLesson.challenge) {
-      loadChallengeProgress(currentLesson.id, currentLesson.challenge.id);
+  // Сброс челленджа для повторного прохождения (создание новой попытки)
+  const restartChallenge = async () => {
+    try {
+      // Сбрасываем локальное состояние
+      setChallengeProgress(null);
+      setChallengeNotes({});
+      
+      // Перезагружаем данные челленджа (автоматически создаст новую попытку при первом сохранении)
+      if (currentLesson && currentLesson.challenge) {
+        await loadChallengeProgress(currentLesson.id, currentLesson.challenge.id);
+      }
+      
+      console.log('Challenge restarted - new attempt will be created on first save');
+    } catch (error) {
+      console.error('Error restarting challenge:', error);
     }
   };
 
@@ -879,6 +887,10 @@ const LearningSystemV2 = () => {
   const renderChallengeSection = () => {
     const completedDays = challengeProgress?.completed_days || [];
     const isCompleted = challengeProgress?.is_completed || false;
+    const attemptNumber = challengeProgress?.attempt_number || 1;
+    const totalAttempts = challengeProgress?.total_attempts || 0;
+    const pointsEarned = challengeProgress?.points_earned || 0;
+    const totalPoints = challengeProgress?.total_points || 0;
 
     return (
       <Card>
@@ -892,6 +904,29 @@ const LearningSystemV2 = () => {
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-6">
+          {/* Статистика попыток и баллов */}
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div className="bg-blue-50 p-4 rounded-lg border border-blue-200">
+              <div className="text-sm text-blue-700 mb-1">Попытка</div>
+              <div className="text-2xl font-bold text-blue-900">#{attemptNumber}</div>
+              <div className="text-xs text-blue-600 mt-1">Всего: {totalAttempts}</div>
+            </div>
+            
+            <div className="bg-green-50 p-4 rounded-lg border border-green-200">
+              <div className="text-sm text-green-700 mb-1">Баллы (текущая)</div>
+              <div className="text-2xl font-bold text-green-900">{pointsEarned}</div>
+              <div className="text-xs text-green-600 mt-1">
+                {currentLesson.challenge?.points_per_day || 10} за день
+              </div>
+            </div>
+            
+            <div className="bg-yellow-50 p-4 rounded-lg border border-yellow-200">
+              <div className="text-sm text-yellow-700 mb-1">Всего баллов</div>
+              <div className="text-2xl font-bold text-yellow-900">{totalPoints}</div>
+              <div className="text-xs text-yellow-600 mt-1">За все попытки</div>
+            </div>
+          </div>
+
           <div className="text-center bg-purple-50 p-4 rounded-lg">
             <div className="text-3xl font-bold text-purple-600 mb-2">
               {completedDays.length} / {currentLesson.challenge?.duration_days} дней
@@ -1011,17 +1046,26 @@ const LearningSystemV2 = () => {
           </div>
 
           {isCompleted && (
-            <div className="bg-green-50 p-6 rounded-lg border border-green-200">
+            <div className="bg-gradient-to-r from-green-50 to-emerald-50 p-6 rounded-lg border border-green-200">
               <div className="text-center mb-4">
                 <div className="text-4xl mb-3">🎉</div>
                 <h3 className="text-xl font-bold text-green-800 mb-2">
                   Поздравляем! Вы завершили челлендж!
                 </h3>
-                <p className="text-green-700 mb-4">
+                <p className="text-green-700 mb-2">
                   Вы успешно прошли все {currentLesson.challenge?.duration_days} дней челленджа
                 </p>
+                <div className="bg-white rounded-lg p-4 mt-4 inline-block">
+                  <div className="text-sm text-gray-600 mb-1">Заработано баллов:</div>
+                  <div className="text-3xl font-bold text-green-600">
+                    +{pointsEarned} 🌟
+                  </div>
+                  <div className="text-xs text-gray-500 mt-1">
+                    ({completedDays.length} дней × {currentLesson.challenge?.points_per_day || 10} + бонус {currentLesson.challenge?.bonus_points || 50})
+                  </div>
+                </div>
               </div>
-              <div className="flex justify-center">
+              <div className="flex justify-center gap-3">
                 <Button
                   variant="outline"
                   onClick={restartChallenge}
@@ -1031,6 +1075,9 @@ const LearningSystemV2 = () => {
                   Пройти челлендж заново
                 </Button>
               </div>
+              <p className="text-center text-xs text-green-600 mt-3">
+                💡 Пройдите челлендж снова, чтобы заработать еще больше баллов!
+              </p>
             </div>
           )}
 
