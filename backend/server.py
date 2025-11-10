@@ -1060,10 +1060,13 @@ async def get_student_responses_for_lesson(
         raise HTTPException(status_code=500, detail=f"Ошибка при получении ответов: {str(e)}")
 
 
+class ReviewResponseRequest(BaseModel):
+    admin_comment: str
+
 @app_v2.post("/api/admin/review-response/{response_id}")
 async def review_student_response(
     response_id: str,
-    admin_comment: str,
+    request: ReviewResponseRequest,
     current_user: dict = Depends(get_current_user)
 ):
     """Добавить комментарий администратора к ответу студента"""
@@ -1073,6 +1076,7 @@ async def review_student_response(
             raise HTTPException(status_code=403, detail="Доступ запрещен")
         
         admin_id = current_user.get('user_id', current_user.get('id', 'unknown'))
+        admin_comment = request.admin_comment
         
         # Обновляем ответ
         result = await db.exercise_responses.update_one(

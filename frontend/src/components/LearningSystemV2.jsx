@@ -37,6 +37,7 @@ const LearningSystemV2 = () => {
   const [error, setError] = useState('');
   const [userLevel, setUserLevel] = useState(1);
   const [exerciseResponses, setExerciseResponses] = useState({});
+  const [exerciseResponsesData, setExerciseResponsesData] = useState({}); // Полные данные ответов
   const [savingResponse, setSavingResponse] = useState({});
   const [lessonProgress, setLessonProgress] = useState(null);
   const [challengeProgress, setChallengeProgress] = useState(null);
@@ -81,6 +82,7 @@ const LearningSystemV2 = () => {
       if (!lesson || !lesson.exercises) return;
 
       const responses = {};
+      const responsesData = {};
       for (const exercise of lesson.exercises) {
         try {
           const response = await fetch(
@@ -96,12 +98,14 @@ const LearningSystemV2 = () => {
           if (response.ok) {
             const data = await response.json();
             responses[exercise.id] = data.response_text || '';
+            responsesData[exercise.id] = data; // Сохраняем полные данные
           }
         } catch (err) {
           console.error(`Error loading response for exercise ${exercise.id}:`, err);
         }
       }
       setExerciseResponses(responses);
+      setExerciseResponsesData(responsesData);
     } catch (error) {
       console.error('Error loading exercise responses:', error);
     }
@@ -683,6 +687,23 @@ const LearningSystemV2 = () => {
                   </p>
                 )}
               </div>
+
+              {/* Комментарий администратора */}
+              {exerciseResponsesData[exercise.id]?.reviewed && exerciseResponsesData[exercise.id]?.admin_comment && (
+                <div className="mt-4 p-4 bg-indigo-50 rounded-lg border border-indigo-200">
+                  <p className="text-sm font-semibold text-indigo-900 mb-2">
+                    💬 Комментарий преподавателя:
+                  </p>
+                  <p className="text-sm text-indigo-800 whitespace-pre-wrap">
+                    {exerciseResponsesData[exercise.id].admin_comment}
+                  </p>
+                  {exerciseResponsesData[exercise.id].reviewed_at && (
+                    <p className="text-xs text-indigo-600 mt-2">
+                      Проверено: {new Date(exerciseResponsesData[exercise.id].reviewed_at).toLocaleString('ru-RU')}
+                    </p>
+                  )}
+                </div>
+              )}
 
               <div className="mt-4 p-3 bg-blue-50 rounded-lg border border-blue-200">
                 <p className="text-sm text-blue-800">
