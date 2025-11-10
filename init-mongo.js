@@ -13,3 +13,4 @@ db.user_lesson_analytics.createIndex({ "user_id": 1 });
 db.user_lesson_analytics.createIndex({ "lesson_id": 1 });
 
 print("NumerOM Learning System V2 database initialized successfully");
+

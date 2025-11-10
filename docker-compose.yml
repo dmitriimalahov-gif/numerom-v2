@@ -56,3 +56,4 @@ volumes:
 networks:
   numerom-v2-network:
     driver: bridge
+

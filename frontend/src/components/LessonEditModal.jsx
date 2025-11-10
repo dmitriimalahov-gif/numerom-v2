@@ -104,6 +104,249 @@ const LessonEditModal = ({
     }));
   };
 
+  const handleChallengeChange = (field, value) => {
+    setEditedLesson(prev => ({
+      ...prev,
+      challenge: {
+        ...prev.challenge,
+        [field]: value
+      }
+    }));
+  };
+
+  const handleChallengeDayChange = (dayIndex, field, value) => {
+    const newDays = [...(editedLesson.challenge?.daily_tasks || [])];
+    newDays[dayIndex] = {
+      ...newDays[dayIndex],
+      [field]: value
+    };
+    setEditedLesson(prev => ({
+      ...prev,
+      challenge: {
+        ...prev.challenge,
+        daily_tasks: newDays
+      }
+    }));
+  };
+
+  const handleChallengeDayTaskChange = (dayIndex, taskIndex, value) => {
+    const newDays = [...(editedLesson.challenge?.daily_tasks || [])];
+    const newTasks = [...(newDays[dayIndex].tasks || [])];
+    newTasks[taskIndex] = value;
+    newDays[dayIndex] = {
+      ...newDays[dayIndex],
+      tasks: newTasks
+    };
+    setEditedLesson(prev => ({
+      ...prev,
+      challenge: {
+        ...prev.challenge,
+        daily_tasks: newDays
+      }
+    }));
+  };
+
+  const addChallengeDayTask = (dayIndex) => {
+    const newDays = [...(editedLesson.challenge?.daily_tasks || [])];
+    newDays[dayIndex] = {
+      ...newDays[dayIndex],
+      tasks: [...(newDays[dayIndex].tasks || []), '']
+    };
+    setEditedLesson(prev => ({
+      ...prev,
+      challenge: {
+        ...prev.challenge,
+        daily_tasks: newDays
+      }
+    }));
+  };
+
+  const removeChallengeDayTask = (dayIndex, taskIndex) => {
+    const newDays = [...(editedLesson.challenge?.daily_tasks || [])];
+    newDays[dayIndex] = {
+      ...newDays[dayIndex],
+      tasks: newDays[dayIndex].tasks.filter((_, i) => i !== taskIndex)
+    };
+    setEditedLesson(prev => ({
+      ...prev,
+      challenge: {
+        ...prev.challenge,
+        daily_tasks: newDays
+      }
+    }));
+  };
+
+  const addChallengeDay = () => {
+    const currentDays = editedLesson.challenge?.daily_tasks || [];
+    const newDay = {
+      day: currentDays.length + 1,
+      title: '',
+      description: '',
+      tasks: [''],
+      completed: false
+    };
+    setEditedLesson(prev => ({
+      ...prev,
+      challenge: {
+        ...prev.challenge,
+        duration_days: currentDays.length + 1,
+        daily_tasks: [...currentDays, newDay]
+      }
+    }));
+  };
+
+  const removeChallengeDay = (dayIndex) => {
+    const newDays = editedLesson.challenge.daily_tasks
+      .filter((_, i) => i !== dayIndex)
+      .map((day, idx) => ({ ...day, day: idx + 1 }));
+    setEditedLesson(prev => ({
+      ...prev,
+      challenge: {
+        ...prev.challenge,
+        duration_days: newDays.length,
+        daily_tasks: newDays
+      }
+    }));
+  };
+
+  const createNewChallenge = () => {
+    setEditedLesson(prev => ({
+      ...prev,
+      challenge: {
+        id: `challenge_${Date.now()}`,
+        title: '',
+        description: '',
+        duration_days: 7,
+        daily_tasks: Array.from({ length: 7 }, (_, i) => ({
+          day: i + 1,
+          title: '',
+          description: '',
+          tasks: [''],
+          completed: false
+        })),
+        start_date: null,
+        end_date: null
+      }
+    }));
+  };
+
+  const handleQuizChange = (field, value) => {
+    setEditedLesson(prev => ({
+      ...prev,
+      quiz: {
+        ...prev.quiz,
+        [field]: value
+      }
+    }));
+  };
+
+  const handleQuestionChange = (questionIndex, field, value) => {
+    const newQuestions = [...(editedLesson.quiz?.questions || [])];
+    newQuestions[questionIndex] = {
+      ...newQuestions[questionIndex],
+      [field]: value
+    };
+    setEditedLesson(prev => ({
+      ...prev,
+      quiz: {
+        ...prev.quiz,
+        questions: newQuestions
+      }
+    }));
+  };
+
+  const handleQuestionOptionChange = (questionIndex, optionIndex, value) => {
+    const newQuestions = [...(editedLesson.quiz?.questions || [])];
+    const newOptions = [...(newQuestions[questionIndex].options || [])];
+    newOptions[optionIndex] = value;
+    newQuestions[questionIndex] = {
+      ...newQuestions[questionIndex],
+      options: newOptions
+    };
+    setEditedLesson(prev => ({
+      ...prev,
+      quiz: {
+        ...prev.quiz,
+        questions: newQuestions
+      }
+    }));
+  };
+
+  const addQuestionOption = (questionIndex) => {
+    const newQuestions = [...(editedLesson.quiz?.questions || [])];
+    newQuestions[questionIndex] = {
+      ...newQuestions[questionIndex],
+      options: [...(newQuestions[questionIndex].options || []), '']
+    };
+    setEditedLesson(prev => ({
+      ...prev,
+      quiz: {
+        ...prev.quiz,
+        questions: newQuestions
+      }
+    }));
+  };
+
+  const removeQuestionOption = (questionIndex, optionIndex) => {
+    const newQuestions = [...(editedLesson.quiz?.questions || [])];
+    newQuestions[questionIndex] = {
+      ...newQuestions[questionIndex],
+      options: newQuestions[questionIndex].options.filter((_, i) => i !== optionIndex)
+    };
+    setEditedLesson(prev => ({
+      ...prev,
+      quiz: {
+        ...prev.quiz,
+        questions: newQuestions
+      }
+    }));
+  };
+
+  const addQuestion = () => {
+    const currentQuestions = editedLesson.quiz?.questions || [];
+    const newQuestion = {
+      id: `q${currentQuestions.length + 1}`,
+      question: '',
+      type: 'multiple_choice',
+      options: ['', '', '', ''],
+      correct_answer: '',
+      explanation: '',
+      points: 10
+    };
+    setEditedLesson(prev => ({
+      ...prev,
+      quiz: {
+        ...prev.quiz,
+        questions: [...currentQuestions, newQuestion]
+      }
+    }));
+  };
+
+  const removeQuestion = (questionIndex) => {
+    const newQuestions = editedLesson.quiz.questions.filter((_, i) => i !== questionIndex);
+    setEditedLesson(prev => ({
+      ...prev,
+      quiz: {
+        ...prev.quiz,
+        questions: newQuestions
+      }
+    }));
+  };
+
+  const createNewQuiz = () => {
+    setEditedLesson(prev => ({
+      ...prev,
+      quiz: {
+        id: `quiz_${Date.now()}`,
+        title: '',
+        description: '',
+        questions: [],
+        passing_score: 70,
+        time_limit_minutes: 15
+      }
+    }));
+  };
+
   const handleSave = () => {
     onSave(editedLesson);
   };
@@ -417,32 +660,318 @@ const LessonEditModal = ({
 
             {/* ЧЕЛЛЕНДЖ */}
             <TabsContent value="challenge" className="space-y-4 mt-0">
-              <div className="bg-purple-50 p-4 rounded-lg border border-purple-200">
-                <h3 className="text-lg font-semibold mb-4">Челлендж</h3>
-                <p className="text-sm text-gray-600 mb-4">
-                  Функционал редактирования челленджа будет добавлен в следующей версии
-                </p>
-                {editedLesson.challenge && (
-                  <div className="bg-white p-3 rounded">
-                    <p className="text-sm"><strong>Длительность:</strong> {editedLesson.challenge.duration_days} дней</p>
+              {!editedLesson.challenge ? (
+                <div className="text-center py-8">
+                  <Users className="w-16 h-16 mx-auto mb-4 text-purple-300" />
+                  <p className="text-gray-600 mb-4">Челлендж еще не создан</p>
+                  <Button onClick={createNewChallenge} className="bg-purple-600 hover:bg-purple-700">
+                    <Plus className="w-4 h-4 mr-2" />
+                    Создать челлендж
+                  </Button>
+                </div>
+              ) : (
+                <>
+                  {/* Основная информация о челлендже */}
+                  <div className="bg-purple-50 p-4 rounded-lg border border-purple-200 space-y-3">
+                    <div>
+                      <Label className="text-sm mb-1 block font-semibold">Название челленджа</Label>
+                      <Input
+                        value={editedLesson.challenge.title || ''}
+                        onChange={(e) => handleChallengeChange('title', e.target.value)}
+                        placeholder="Например: 7-дневный челлендж развития"
+                        className="bg-white"
+                      />
+                    </div>
+                    <div>
+                      <Label className="text-sm mb-1 block font-semibold">Описание</Label>
+                      <Textarea
+                        value={editedLesson.challenge.description || ''}
+                        onChange={(e) => handleChallengeChange('description', e.target.value)}
+                        placeholder="Краткое описание челленджа"
+                        rows={2}
+                        className="bg-white"
+                      />
+                    </div>
+                    <div>
+                      <Label className="text-sm mb-1 block font-semibold">Длительность (дней)</Label>
+                      <Input
+                        type="number"
+                        value={editedLesson.challenge.duration_days || 7}
+                        onChange={(e) => handleChallengeChange('duration_days', parseInt(e.target.value) || 7)}
+                        className="bg-white w-32"
+                        min="1"
+                        max="30"
+                      />
+                    </div>
                   </div>
-                )}
-              </div>
+
+                  {/* Ежедневные задания */}
+                  <div className="flex justify-between items-center">
+                    <h3 className="text-lg font-semibold">Ежедневные задания ({editedLesson.challenge.daily_tasks?.length || 0})</h3>
+                    <Button onClick={addChallengeDay} size="sm" className="bg-purple-600">
+                      <Plus className="w-4 h-4 mr-1" />
+                      Добавить день
+                    </Button>
+                  </div>
+
+                  {editedLesson.challenge.daily_tasks?.map((day, dayIndex) => (
+                    <div key={dayIndex} className="bg-purple-50 p-4 rounded-lg border border-purple-200">
+                      <div className="flex justify-between items-start mb-3">
+                        <span className="text-sm font-semibold text-purple-800">День {day.day}</span>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => removeChallengeDay(dayIndex)}
+                          className="text-red-600 hover:text-red-700 hover:bg-red-50"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </Button>
+                      </div>
+
+                      <div className="space-y-3">
+                        <div>
+                          <Label className="text-sm mb-1 block">Название дня</Label>
+                          <Input
+                            value={day.title || ''}
+                            onChange={(e) => handleChallengeDayChange(dayIndex, 'title', e.target.value)}
+                            placeholder="Например: День 1: Утренняя аффирмация"
+                            className="bg-white"
+                          />
+                        </div>
+
+                        <div>
+                          <Label className="text-sm mb-1 block">Описание</Label>
+                          <Textarea
+                            value={day.description || ''}
+                            onChange={(e) => handleChallengeDayChange(dayIndex, 'description', e.target.value)}
+                            placeholder="Краткое описание задания на день"
+                            rows={2}
+                            className="bg-white"
+                          />
+                        </div>
+
+                        <div>
+                          <div className="flex justify-between items-center mb-2">
+                            <Label className="text-sm font-semibold">Задачи ({day.tasks?.length || 0})</Label>
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => addChallengeDayTask(dayIndex)}
+                              className="text-purple-600 hover:text-purple-700"
+                            >
+                              <Plus className="w-3 h-3 mr-1" />
+                              Добавить задачу
+                            </Button>
+                          </div>
+
+                          {day.tasks?.map((task, taskIndex) => (
+                            <div key={taskIndex} className="flex gap-2 mb-2">
+                              <Input
+                                value={task || ''}
+                                onChange={(e) => handleChallengeDayTaskChange(dayIndex, taskIndex, e.target.value)}
+                                placeholder={`Задача ${taskIndex + 1}`}
+                                className="bg-white flex-1"
+                              />
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                onClick={() => removeChallengeDayTask(dayIndex, taskIndex)}
+                                className="text-red-600 hover:text-red-700"
+                              >
+                                <Trash2 className="w-4 h-4" />
+                              </Button>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </>
+              )}
             </TabsContent>
 
             {/* ТЕСТ */}
             <TabsContent value="quiz" className="space-y-4 mt-0">
-              <div className="bg-red-50 p-4 rounded-lg border border-red-200">
-                <h3 className="text-lg font-semibold mb-4">Тест</h3>
-                <p className="text-sm text-gray-600 mb-4">
-                  Функционал редактирования теста будет добавлен в следующей версии
-                </p>
-                {editedLesson.quiz && (
-                  <div className="bg-white p-3 rounded">
-                    <p className="text-sm"><strong>Вопросов:</strong> {editedLesson.quiz.questions?.length || 0}</p>
+              {!editedLesson.quiz ? (
+                <div className="text-center py-8">
+                  <FileText className="w-16 h-16 mx-auto mb-4 text-red-300" />
+                  <p className="text-gray-600 mb-4">Тест еще не создан</p>
+                  <Button onClick={createNewQuiz} className="bg-red-600 hover:bg-red-700">
+                    <Plus className="w-4 h-4 mr-2" />
+                    Создать тест
+                  </Button>
+                </div>
+              ) : (
+                <>
+                  {/* Основная информация о тесте */}
+                  <div className="bg-red-50 p-4 rounded-lg border border-red-200 space-y-3">
+                    <div>
+                      <Label className="text-sm mb-1 block font-semibold">Название теста</Label>
+                      <Input
+                        value={editedLesson.quiz.title || ''}
+                        onChange={(e) => handleQuizChange('title', e.target.value)}
+                        placeholder="Например: Тест по основам нумерологии"
+                        className="bg-white"
+                      />
+                    </div>
+                    <div>
+                      <Label className="text-sm mb-1 block font-semibold">Описание</Label>
+                      <Textarea
+                        value={editedLesson.quiz.description || ''}
+                        onChange={(e) => handleQuizChange('description', e.target.value)}
+                        placeholder="Краткое описание теста"
+                        rows={2}
+                        className="bg-white"
+                      />
+                    </div>
+                    <div className="grid grid-cols-2 gap-4">
+                      <div>
+                        <Label className="text-sm mb-1 block font-semibold">Проходной балл (%)</Label>
+                        <Input
+                          type="number"
+                          value={editedLesson.quiz.passing_score || 70}
+                          onChange={(e) => handleQuizChange('passing_score', parseInt(e.target.value) || 70)}
+                          className="bg-white"
+                          min="0"
+                          max="100"
+                        />
+                      </div>
+                      <div>
+                        <Label className="text-sm mb-1 block font-semibold">Время (минут)</Label>
+                        <Input
+                          type="number"
+                          value={editedLesson.quiz.time_limit_minutes || 15}
+                          onChange={(e) => handleQuizChange('time_limit_minutes', parseInt(e.target.value) || 15)}
+                          className="bg-white"
+                          min="1"
+                          max="120"
+                        />
+                      </div>
+                    </div>
                   </div>
-                )}
-              </div>
+
+                  {/* Вопросы */}
+                  <div className="flex justify-between items-center">
+                    <h3 className="text-lg font-semibold">Вопросы ({editedLesson.quiz.questions?.length || 0})</h3>
+                    <Button onClick={addQuestion} size="sm" className="bg-red-600">
+                      <Plus className="w-4 h-4 mr-1" />
+                      Добавить вопрос
+                    </Button>
+                  </div>
+
+                  {editedLesson.quiz.questions?.map((question, qIndex) => (
+                    <div key={qIndex} className="bg-red-50 p-4 rounded-lg border border-red-200">
+                      <div className="flex justify-between items-start mb-3">
+                        <span className="text-sm font-semibold text-red-800">Вопрос {qIndex + 1}</span>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => removeQuestion(qIndex)}
+                          className="text-red-600 hover:text-red-700 hover:bg-red-100"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </Button>
+                      </div>
+
+                      <div className="space-y-3">
+                        <div>
+                          <Label className="text-sm mb-1 block">Вопрос</Label>
+                          <Textarea
+                            value={question.question || ''}
+                            onChange={(e) => handleQuestionChange(qIndex, 'question', e.target.value)}
+                            placeholder="Введите текст вопроса"
+                            rows={2}
+                            className="bg-white"
+                          />
+                        </div>
+
+                        <div>
+                          <div className="flex justify-between items-center mb-2">
+                            <Label className="text-sm font-semibold">Варианты ответов ({question.options?.length || 0})</Label>
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => addQuestionOption(qIndex)}
+                              className="text-red-600 hover:text-red-700"
+                            >
+                              <Plus className="w-3 h-3 mr-1" />
+                              Добавить вариант
+                            </Button>
+                          </div>
+
+                          {question.options?.map((option, optIndex) => (
+                            <div key={optIndex} className="flex gap-2 mb-2">
+                              <Input
+                                value={option || ''}
+                                onChange={(e) => handleQuestionOptionChange(qIndex, optIndex, e.target.value)}
+                                placeholder={`Вариант ${optIndex + 1}`}
+                                className="bg-white flex-1"
+                              />
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                onClick={() => removeQuestionOption(qIndex, optIndex)}
+                                className="text-red-600 hover:text-red-700"
+                              >
+                                <Trash2 className="w-4 h-4" />
+                              </Button>
+                            </div>
+                          ))}
+                        </div>
+
+                        <div>
+                          <Label className="text-sm mb-1 block">Правильный ответ</Label>
+                          <Select
+                            value={question.correct_answer || ''}
+                            onValueChange={(value) => handleQuestionChange(qIndex, 'correct_answer', value)}
+                          >
+                            <SelectTrigger className="bg-white">
+                              <SelectValue placeholder="Выберите правильный ответ" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {question.options?.map((option, idx) => (
+                                <SelectItem key={idx} value={option}>
+                                  {option || `Вариант ${idx + 1}`}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        </div>
+
+                        <div>
+                          <Label className="text-sm mb-1 block">Объяснение</Label>
+                          <Textarea
+                            value={question.explanation || ''}
+                            onChange={(e) => handleQuestionChange(qIndex, 'explanation', e.target.value)}
+                            placeholder="Объяснение правильного ответа"
+                            rows={2}
+                            className="bg-white"
+                          />
+                        </div>
+
+                        <div>
+                          <Label className="text-sm mb-1 block">Баллы за вопрос</Label>
+                          <Input
+                            type="number"
+                            value={question.points || 10}
+                            onChange={(e) => handleQuestionChange(qIndex, 'points', parseInt(e.target.value) || 10)}
+                            className="bg-white w-32"
+                            min="1"
+                            max="100"
+                          />
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+
+                  {(!editedLesson.quiz.questions || editedLesson.quiz.questions.length === 0) && (
+                    <div className="text-center py-8 text-gray-500">
+                      <FileText className="w-12 h-12 mx-auto mb-2 opacity-50" />
+                      <p>Нет вопросов. Нажмите "Добавить вопрос" чтобы создать первый.</p>
+                    </div>
+                  )}
+                </>
+              )}
             </TabsContent>
 
             {/* АНАЛИТИКА */}

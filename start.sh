@@ -37,3 +37,4 @@ echo ""
 echo "💡 Тестовые данные для входа:"
 echo "   Email: admin@learning-v2.com"
 echo "   Пароль: admin123"
+
