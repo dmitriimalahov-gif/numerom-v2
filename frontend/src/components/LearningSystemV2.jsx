@@ -1310,82 +1310,219 @@ const LearningSystemV2 = () => {
   };
 
   const renderAnalyticsSection = () => {
+    // Подсчет статистики по текущему уроку
+    const totalExercises = currentLesson.exercises?.length || 0;
+    const completedExercises = Object.keys(exerciseResponses).filter(id => exerciseResponses[id]).length;
+    const exerciseProgress = totalExercises > 0 ? Math.round((completedExercises / totalExercises) * 100) : 0;
+
+    const hasChallenge = currentLesson.challenge && currentLesson.challenge.days?.length > 0;
+    const challengeDays = currentLesson.challenge?.days?.length || 0;
+    const completedChallengeDays = challengeProgress?.completed_days?.length || 0;
+    const challengeProgressPercent = challengeDays > 0 ? Math.round((completedChallengeDays / challengeDays) * 100) : 0;
+
+    const hasQuiz = currentLesson.quiz && currentLesson.quiz.questions?.length > 0;
+    const quizPassed = quizCompleted && quizScore >= (currentLesson.quiz?.passing_score || 70);
+
+    const overallProgress = lessonProgress?.completion_percentage || 0;
+
+    // Подсчет комментариев от преподавателя
+    const reviewedExercises = Object.values(exerciseResponsesData).filter(r => r?.reviewed && r?.admin_comment).length;
+
     return (
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
             <BarChart3 className="w-5 h-5 text-indigo-600" />
-            Персональная аналитика
+            Ваш прогресс по уроку
           </CardTitle>
           <CardDescription>
-            Анализ ваших ответов и персональные рекомендации
+            Детальная статистика вашего обучения
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-6">
-          <Alert>
-            <BarChart3 className="h-4 w-4" />
-            <AlertDescription>
-              На основе ваших ответов в упражнениях и результатах теста, мы подготовили персональный анализ.
-            </AlertDescription>
-          </Alert>
+          {/* Общий прогресс */}
+          <div className="bg-gradient-to-r from-indigo-50 to-purple-50 rounded-lg p-6 border border-indigo-200">
+            <div className="flex items-center justify-between mb-4">
+              <h4 className="font-semibold text-indigo-900 text-lg">Общий прогресс урока</h4>
+              <div className="text-3xl font-bold text-indigo-600">{overallProgress}%</div>
+            </div>
+            <Progress value={overallProgress} className="h-3" />
+            <p className="text-sm text-indigo-700 mt-2">
+              {overallProgress === 100 ? '🎉 Урок полностью завершен!' : 
+               overallProgress >= 75 ? 'Отличная работа! Вы почти у цели!' :
+               overallProgress >= 50 ? 'Хороший прогресс! Продолжайте в том же духе!' :
+               overallProgress >= 25 ? 'Вы на правильном пути!' :
+               'Начните с изучения теории и выполнения упражнений'}
+            </p>
+          </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            <div className="bg-green-50 rounded-lg p-6 border border-green-200">
-              <h4 className="font-semibold text-green-900 mb-3 flex items-center">
-                <Star className="w-5 h-5 mr-2" />
-                Ваши сильные стороны
-              </h4>
-              <ul className="space-y-2 text-sm text-green-800">
-                <li>• Глубокое понимание материала</li>
-                <li>• Творческий подход к задачам</li>
-                <li>• Высокая мотивация к обучению</li>
-              </ul>
+          {/* Статистика по разделам */}
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+            {/* Упражнения */}
+            <div className="bg-green-50 rounded-lg p-5 border border-green-200">
+              <div className="flex items-center gap-3 mb-3">
+                <div className="p-2 bg-green-100 rounded-lg">
+                  <Brain className="w-6 h-6 text-green-600" />
+                </div>
+                <div>
+                  <h5 className="font-semibold text-green-900">Упражнения</h5>
+                  <p className="text-sm text-green-700">{completedExercises} из {totalExercises}</p>
+                </div>
+              </div>
+              <Progress value={exerciseProgress} className="h-2 mb-2" />
+              <p className="text-xs text-green-600">{exerciseProgress}% выполнено</p>
+              {reviewedExercises > 0 && (
+                <p className="text-xs text-green-700 mt-2">
+                  ✓ {reviewedExercises} ответов проверено преподавателем
+                </p>
+              )}
             </div>
 
-            <div className="bg-orange-50 rounded-lg p-6 border border-orange-200">
-              <h4 className="font-semibold text-orange-900 mb-3 flex items-center">
-                <Target className="w-5 h-5 mr-2" />
-                Зоны роста
+            {/* Челлендж */}
+            {hasChallenge && (
+              <div className="bg-orange-50 rounded-lg p-5 border border-orange-200">
+                <div className="flex items-center gap-3 mb-3">
+                  <div className="p-2 bg-orange-100 rounded-lg">
+                    <Calendar className="w-6 h-6 text-orange-600" />
+                  </div>
+                  <div>
+                    <h5 className="font-semibold text-orange-900">Челлендж</h5>
+                    <p className="text-sm text-orange-700">{completedChallengeDays} из {challengeDays} дней</p>
+                  </div>
+                </div>
+                <Progress value={challengeProgressPercent} className="h-2 mb-2" />
+                <p className="text-xs text-orange-600">{challengeProgressPercent}% выполнено</p>
+                {challengeProgress?.is_completed && (
+                  <p className="text-xs text-orange-700 mt-2">
+                    🎉 Челлендж завершен!
+                  </p>
+                )}
+              </div>
+            )}
+
+            {/* Тест */}
+            {hasQuiz && (
+              <div className={`rounded-lg p-5 border ${quizPassed ? 'bg-blue-50 border-blue-200' : 'bg-gray-50 border-gray-200'}`}>
+                <div className="flex items-center gap-3 mb-3">
+                  <div className={`p-2 rounded-lg ${quizPassed ? 'bg-blue-100' : 'bg-gray-100'}`}>
+                    <Target className={`w-6 h-6 ${quizPassed ? 'text-blue-600' : 'text-gray-600'}`} />
+                  </div>
+                  <div>
+                    <h5 className={`font-semibold ${quizPassed ? 'text-blue-900' : 'text-gray-900'}`}>Тест</h5>
+                    <p className={`text-sm ${quizPassed ? 'text-blue-700' : 'text-gray-700'}`}>
+                      {quizCompleted ? `${quizScore}%` : 'Не пройден'}
+                    </p>
+                  </div>
+                </div>
+                {quizCompleted ? (
+                  <>
+                    <Progress value={quizScore} className="h-2 mb-2" />
+                    <p className={`text-xs ${quizPassed ? 'text-blue-600' : 'text-red-600'}`}>
+                      {quizPassed ? '✓ Тест пройден успешно!' : '✗ Тест не пройден'}
+                    </p>
+                  </>
+                ) : (
+                  <p className="text-xs text-gray-600">Перейдите к разделу "Тест"</p>
+                )}
+              </div>
+            )}
+          </div>
+
+          {/* Комментарии преподавателя */}
+          {reviewedExercises > 0 && (
+            <div className="bg-purple-50 rounded-lg p-6 border border-purple-200">
+              <h4 className="font-semibold text-purple-900 mb-4 flex items-center gap-2">
+                <Star className="w-5 h-5" />
+                Обратная связь от преподавателя
               </h4>
-              <ul className="space-y-2 text-sm text-orange-800">
-                <li>• Практическое применение знаний</li>
-                <li>• Работа с деталями</li>
-                <li>• Систематический подход</li>
-              </ul>
+              <div className="space-y-3">
+                {Object.entries(exerciseResponsesData).map(([exerciseId, data]) => {
+                  if (!data?.reviewed || !data?.admin_comment) return null;
+                  
+                  const exercise = currentLesson.exercises?.find(e => e.id === exerciseId);
+                  if (!exercise) return null;
+
+                  return (
+                    <div key={exerciseId} className="bg-white rounded-lg p-4 border border-purple-200">
+                      <p className="text-sm font-medium text-purple-900 mb-2">
+                        {exercise.title}
+                      </p>
+                      <p className="text-sm text-purple-800 whitespace-pre-wrap">
+                        {data.admin_comment}
+                      </p>
+                      <p className="text-xs text-purple-600 mt-2">
+                        {new Date(data.reviewed_at).toLocaleString('ru-RU')}
+                      </p>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
+          {/* Достижения */}
+          <div className="bg-gradient-to-r from-yellow-50 to-amber-50 rounded-lg p-6 border border-yellow-200">
+            <h4 className="font-semibold text-yellow-900 mb-4 flex items-center gap-2">
+              <Trophy className="w-5 h-5" />
+              Ваши достижения
+            </h4>
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+              {completedExercises > 0 && (
+                <div className="text-center">
+                  <div className="text-3xl mb-2">✍️</div>
+                  <p className="text-sm font-medium text-yellow-900">Практик</p>
+                  <p className="text-xs text-yellow-700">{completedExercises} упражнений</p>
+                </div>
+              )}
+              {completedChallengeDays > 0 && (
+                <div className="text-center">
+                  <div className="text-3xl mb-2">🔥</div>
+                  <p className="text-sm font-medium text-yellow-900">Целеустремленный</p>
+                  <p className="text-xs text-yellow-700">{completedChallengeDays} дней челленджа</p>
+                </div>
+              )}
+              {quizPassed && (
+                <div className="text-center">
+                  <div className="text-3xl mb-2">🎓</div>
+                  <p className="text-sm font-medium text-yellow-900">Знаток</p>
+                  <p className="text-xs text-yellow-700">Тест пройден на {quizScore}%</p>
+                </div>
+              )}
+              {overallProgress === 100 && (
+                <div className="text-center">
+                  <div className="text-3xl mb-2">🏆</div>
+                  <p className="text-sm font-medium text-yellow-900">Мастер</p>
+                  <p className="text-xs text-yellow-700">Урок завершен на 100%</p>
+                </div>
+              )}
             </div>
           </div>
 
+          {/* Рекомендации */}
           <div className="bg-blue-50 rounded-lg p-6 border border-blue-200">
-            <h4 className="font-semibold text-blue-900 mb-3 flex items-center">
-              <Brain className="w-5 h-5 mr-2" />
-              Персональные рекомендации
+            <h4 className="font-semibold text-blue-900 mb-4 flex items-center gap-2">
+              <Brain className="w-5 h-5" />
+              Что делать дальше?
             </h4>
             <div className="space-y-3 text-sm text-blue-800">
-              <p>
-                <strong>1. Практика:</strong> Регулярно применяйте полученные знания в повседневной жизни.
-                Попробуйте анализировать цифры вокруг вас - даты, номера, адреса.
-              </p>
-              <p>
-                <strong>2. Глубина:</strong> Когда изучаете материал, старайтесь не только запомнить информацию,
-                но и понять ее суть и взаимосвязи.
-              </p>
-              <p>
-                <strong>3. Терпение:</strong> Нумерология - это не быстрый результат, а постепенное раскрытие
-                понимания. Дайте себе время на интеграцию знаний.
-              </p>
-            </div>
-          </div>
-
-          <div className="bg-indigo-50 rounded-lg p-6 border border-indigo-200">
-            <h4 className="font-semibold text-indigo-900 mb-3 flex items-center">
-              <Trophy className="w-5 h-5 mr-2" />
-              Следующие шаги
-            </h4>
-            <div className="space-y-2 text-sm text-indigo-800">
-              <p>• Продолжайте изучение следующих уроков</p>
-              <p>• Практикуйте анализ личных чисел</p>
-              <p>• Обсуждайте темы с единомышленниками</p>
-              <p>• Ведите дневник открытий</p>
+              {completedExercises < totalExercises && (
+                <p>• Завершите оставшиеся упражнения ({totalExercises - completedExercises} из {totalExercises})</p>
+              )}
+              {hasChallenge && completedChallengeDays < challengeDays && (
+                <p>• Продолжите челлендж (осталось {challengeDays - completedChallengeDays} дней)</p>
+              )}
+              {hasQuiz && !quizCompleted && (
+                <p>• Пройдите тест для проверки знаний</p>
+              )}
+              {hasQuiz && quizCompleted && !quizPassed && (
+                <p>• Повторите материал и пройдите тест заново</p>
+              )}
+              {overallProgress === 100 && (
+                <p>• 🎉 Отличная работа! Переходите к следующему уроку</p>
+              )}
+              {overallProgress < 100 && overallProgress >= 75 && (
+                <p>• Вы почти у цели! Завершите оставшиеся задания</p>
+              )}
             </div>
           </div>
 
