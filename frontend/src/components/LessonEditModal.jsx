@@ -1597,90 +1597,219 @@ const LessonEditModal = ({
                 </div>
               ) : analyticsData ? (
                 <>
-                  {/* Общая статистика */}
-                  <div className="bg-gradient-to-r from-indigo-50 to-purple-50 p-6 rounded-lg border border-indigo-200">
-                    <h3 className="text-lg font-semibold mb-4 flex items-center gap-2">
-                      <BarChart3 className="w-5 h-5 text-indigo-600" />
-                      Статистика урока
-                    </h3>
-                    <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                      <div className="bg-white p-4 rounded-lg shadow-sm">
-                        <p className="text-sm text-gray-600">Студентов начало</p>
-                        <p className="text-2xl font-bold text-indigo-600">{analyticsData.statistics.total_students}</p>
-                      </div>
-                      <div className="bg-white p-4 rounded-lg shadow-sm">
-                        <p className="text-sm text-gray-600">Завершили</p>
-                        <p className="text-2xl font-bold text-green-600">{analyticsData.statistics.completed_students}</p>
-                      </div>
-                      <div className="bg-white p-4 rounded-lg shadow-sm">
-                        <p className="text-sm text-gray-600">Средний прогресс</p>
-                        <p className="text-2xl font-bold text-blue-600">{analyticsData.statistics.avg_completion_percentage}%</p>
-                      </div>
-                      <div className="bg-white p-4 rounded-lg shadow-sm">
-                        <p className="text-sm text-gray-600">Ожидают проверки</p>
-                        <p className="text-2xl font-bold text-orange-600">{analyticsData.statistics.pending_review}</p>
-                      </div>
+                  {/* Компактная общая статистика */}
+                  <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
+                    {/* Студенты */}
+                    <div className="bg-gradient-to-br from-indigo-500 to-indigo-600 p-4 rounded-lg text-white shadow-lg">
+                      <p className="text-xs opacity-90 mb-1">Студентов</p>
+                      <p className="text-3xl font-bold">{analyticsData.statistics.total_students}</p>
+                      <p className="text-xs mt-1 opacity-75">
+                        {analyticsData.statistics.completed_students} завершили
+                      </p>
                     </div>
-                    
-                    <div className="grid grid-cols-3 gap-4 mt-4">
-                      <div className="bg-white p-4 rounded-lg shadow-sm">
-                        <p className="text-sm text-gray-600">Всего ответов</p>
-                        <p className="text-xl font-bold text-gray-800">{analyticsData.statistics.total_exercise_responses}</p>
-                      </div>
-                      <div className="bg-white p-4 rounded-lg shadow-sm">
-                        <p className="text-sm text-gray-600">Попыток теста</p>
-                        <p className="text-xl font-bold text-gray-800">{analyticsData.statistics.total_quiz_attempts}</p>
-                      </div>
-                      <div className="bg-white p-4 rounded-lg shadow-sm">
-                        <p className="text-sm text-gray-600">Средний балл</p>
-                        <p className="text-xl font-bold text-purple-600">{analyticsData.statistics.avg_quiz_score}%</p>
-                      </div>
+
+                    {/* Прогресс */}
+                    <div className="bg-gradient-to-br from-blue-500 to-blue-600 p-4 rounded-lg text-white shadow-lg">
+                      <p className="text-xs opacity-90 mb-1">Прогресс</p>
+                      <p className="text-3xl font-bold">{analyticsData.statistics.avg_completion_percentage}%</p>
+                      <p className="text-xs mt-1 opacity-75">средний</p>
+                    </div>
+
+                    {/* Упражнения */}
+                    <div className="bg-gradient-to-br from-green-500 to-green-600 p-4 rounded-lg text-white shadow-lg">
+                      <p className="text-xs opacity-90 mb-1">Упражнения</p>
+                      <p className="text-3xl font-bold">{analyticsData.statistics.total_exercise_responses}</p>
+                      <p className="text-xs mt-1 opacity-75">
+                        {analyticsData.statistics.pending_review} на проверке
+                      </p>
+                    </div>
+
+                    {/* Тесты */}
+                    <div className="bg-gradient-to-br from-purple-500 to-purple-600 p-4 rounded-lg text-white shadow-lg">
+                      <p className="text-xs opacity-90 mb-1">Тесты</p>
+                      <p className="text-3xl font-bold">{analyticsData.statistics.avg_quiz_score}%</p>
+                      <p className="text-xs mt-1 opacity-75">
+                        {analyticsData.statistics.total_quiz_attempts} попыток
+                      </p>
+                    </div>
+
+                    {/* Челленджи */}
+                    <div className="bg-gradient-to-br from-orange-500 to-orange-600 p-4 rounded-lg text-white shadow-lg">
+                      <p className="text-xs opacity-90 mb-1">Челленджи</p>
+                      <p className="text-3xl font-bold">{analyticsData.statistics.total_challenge_attempts || 0}</p>
+                      <p className="text-xs mt-1 opacity-75">
+                        {analyticsData.statistics.completed_challenges || 0} завершено
+                      </p>
                     </div>
                   </div>
 
-                  {/* Ответы студентов */}
-                  <div className="bg-white p-6 rounded-lg border border-gray-200">
-                    <h3 className="text-lg font-semibold mb-4 flex items-center gap-2">
-                      <Users className="w-5 h-5 text-indigo-600" />
-                      Ответы студентов на упражнения ({studentResponses.length})
+                  {/* Статистика по баллам челленджа */}
+                  {analyticsData.statistics.total_challenge_attempts > 0 && (
+                    <div className="bg-gradient-to-r from-yellow-50 to-amber-50 p-5 rounded-lg border border-yellow-200">
+                      <h3 className="text-base font-semibold mb-3 flex items-center gap-2">
+                        <BarChart3 className="w-4 h-4 text-yellow-700" />
+                        Статистика по баллам челленджа
+                      </h3>
+                      <div className="grid grid-cols-3 gap-3">
+                        <div className="bg-white p-3 rounded-lg shadow-sm">
+                          <p className="text-xs text-gray-600 mb-1">Всего баллов</p>
+                          <p className="text-2xl font-bold text-yellow-600">
+                            {analyticsData.statistics.total_points_earned || 0} 🌟
+                          </p>
+                        </div>
+                        <div className="bg-white p-3 rounded-lg shadow-sm">
+                          <p className="text-xs text-gray-600 mb-1">Средний балл</p>
+                          <p className="text-2xl font-bold text-amber-600">
+                            {analyticsData.statistics.avg_points_per_attempt || 0}
+                          </p>
+                        </div>
+                        <div className="bg-white p-3 rounded-lg shadow-sm">
+                          <p className="text-xs text-gray-600 mb-1">Участников</p>
+                          <p className="text-2xl font-bold text-orange-600">
+                            {analyticsData.statistics.unique_challenge_users || 0}
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Топ студентов по баллам */}
+                  {analyticsData.challenge_leaderboard && analyticsData.challenge_leaderboard.length > 0 && (
+                    <div className="bg-white p-5 rounded-lg border border-gray-200">
+                      <h3 className="text-base font-semibold mb-3 flex items-center gap-2">
+                        <Users className="w-4 h-4 text-indigo-600" />
+                        Топ студентов по баллам челленджа
+                      </h3>
+                      <div className="space-y-2">
+                        {analyticsData.challenge_leaderboard.map((student, index) => (
+                          <div 
+                            key={student.user_id}
+                            className={`flex items-center justify-between p-3 rounded-lg ${
+                              index === 0 ? 'bg-yellow-50 border border-yellow-200' :
+                              index === 1 ? 'bg-gray-50 border border-gray-200' :
+                              index === 2 ? 'bg-orange-50 border border-orange-200' :
+                              'bg-gray-50'
+                            }`}
+                          >
+                            <div className="flex items-center gap-3">
+                              <div className={`w-8 h-8 rounded-full flex items-center justify-center font-bold ${
+                                index === 0 ? 'bg-yellow-400 text-yellow-900' :
+                                index === 1 ? 'bg-gray-400 text-gray-900' :
+                                index === 2 ? 'bg-orange-400 text-orange-900' :
+                                'bg-gray-300 text-gray-700'
+                              }`}>
+                                {index + 1}
+                              </div>
+                              <div>
+                                <p className="font-medium text-sm">Студент {student.user_id.substring(0, 8)}</p>
+                                <p className="text-xs text-gray-500">
+                                  {student.attempts} попыток • {student.completed} завершено
+                                </p>
+                              </div>
+                            </div>
+                            <div className="text-right">
+                              <p className="text-xl font-bold text-yellow-600">{student.total_points} 🌟</p>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* График прогресса по времени */}
+                  {analyticsData.progress_timeline && analyticsData.progress_timeline.length > 0 && (
+                    <div className="bg-white p-5 rounded-lg border border-gray-200">
+                      <h3 className="text-base font-semibold mb-3 flex items-center gap-2">
+                        <BarChart3 className="w-4 h-4 text-indigo-600" />
+                        Динамика обучения
+                      </h3>
+                      <div className="space-y-2">
+                        {analyticsData.progress_timeline.slice(-7).map(([date, data]) => {
+                          const maxValue = Math.max(data.started, data.completed, 1);
+                          const startedWidth = (data.started / maxValue) * 100;
+                          const completedWidth = (data.completed / maxValue) * 100;
+                          
+                          return (
+                            <div key={date} className="space-y-1">
+                              <div className="flex justify-between text-xs text-gray-600">
+                                <span>{new Date(date).toLocaleDateString('ru-RU', { day: 'numeric', month: 'short' })}</span>
+                                <span>{data.started} начали • {data.completed} завершили</span>
+                              </div>
+                              <div className="flex gap-1 h-6">
+                                <div 
+                                  className="bg-blue-200 rounded flex items-center justify-end pr-2"
+                                  style={{ width: `${startedWidth}%` }}
+                                >
+                                  {data.started > 0 && <span className="text-xs text-blue-800">{data.started}</span>}
+                                </div>
+                                <div 
+                                  className="bg-green-500 rounded flex items-center justify-end pr-2"
+                                  style={{ width: `${completedWidth}%` }}
+                                >
+                                  {data.completed > 0 && <span className="text-xs text-white">{data.completed}</span>}
+                                </div>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                      <div className="flex gap-4 mt-3 text-xs">
+                        <div className="flex items-center gap-1">
+                          <div className="w-3 h-3 bg-blue-200 rounded"></div>
+                          <span className="text-gray-600">Начали</span>
+                        </div>
+                        <div className="flex items-center gap-1">
+                          <div className="w-3 h-3 bg-green-500 rounded"></div>
+                          <span className="text-gray-600">Завершили</span>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Ответы студентов - компактный дизайн */}
+                  <div className="bg-white p-5 rounded-lg border border-gray-200">
+                    <h3 className="text-base font-semibold mb-3 flex items-center gap-2">
+                      <Users className="w-4 h-4 text-indigo-600" />
+                      Ответы студентов ({studentResponses.length})
+                      {analyticsData.statistics.pending_review > 0 && (
+                        <span className="ml-auto text-xs bg-orange-100 text-orange-700 px-2 py-1 rounded-full">
+                          {analyticsData.statistics.pending_review} на проверке
+                        </span>
+                      )}
                     </h3>
                     
                     {studentResponses.length === 0 ? (
-                      <p className="text-gray-500 text-center py-8">Пока нет ответов от студентов</p>
+                      <p className="text-gray-500 text-center py-6 text-sm">Пока нет ответов от студентов</p>
                     ) : (
-                      <div className="space-y-4 max-h-96 overflow-y-auto">
+                      <div className="space-y-2 max-h-96 overflow-y-auto">
                         {studentResponses.map((response) => (
                           <div 
                             key={response.id} 
-                            className={`p-4 rounded-lg border ${
+                            className={`p-3 rounded-lg border ${
                               response.reviewed 
                                 ? 'bg-green-50 border-green-200' 
                                 : 'bg-yellow-50 border-yellow-200'
                             }`}
                           >
                             <div className="flex justify-between items-start mb-2">
-                              <div>
-                                <p className="font-semibold text-gray-800">{response.user_name}</p>
-                                <p className="text-sm text-gray-600">{response.exercise_title}</p>
+                              <div className="flex-1">
+                                <div className="flex items-center gap-2">
+                                  <p className="font-medium text-sm">{response.user_name}</p>
+                                  {response.reviewed ? (
+                                    <span className="px-2 py-0.5 text-xs bg-green-600 text-white rounded">✓</span>
+                                  ) : (
+                                    <span className="px-2 py-0.5 text-xs bg-yellow-600 text-white rounded">⏱</span>
+                                  )}
+                                </div>
+                                <p className="text-xs text-gray-600">{response.exercise_title}</p>
                               </div>
-                              <div className="text-right">
-                                <p className="text-xs text-gray-500">
-                                  {new Date(response.submitted_at).toLocaleString('ru-RU')}
-                                </p>
-                                {response.reviewed ? (
-                                  <span className="inline-block mt-1 px-2 py-1 text-xs bg-green-600 text-white rounded">
-                                    Проверено
-                                  </span>
-                                ) : (
-                                  <span className="inline-block mt-1 px-2 py-1 text-xs bg-yellow-600 text-white rounded">
-                                    Ожидает проверки
-                                  </span>
-                                )}
-                              </div>
+                              <p className="text-xs text-gray-500">
+                                {new Date(response.submitted_at).toLocaleDateString('ru-RU')}
+                              </p>
                             </div>
                             
-                            <div className="bg-white p-3 rounded border border-gray-200 mb-3">
-                              <p className="text-sm text-gray-700 whitespace-pre-wrap">{response.response_text}</p>
+                            <div className="bg-white p-2 rounded border border-gray-200 mb-2">
+                              <p className="text-xs text-gray-700 line-clamp-2">{response.response_text}</p>
                             </div>
                             
                             {response.reviewed && response.admin_comment && (
@@ -1739,39 +1868,41 @@ const LessonEditModal = ({
                     )}
                   </div>
 
-                  {/* Заметки челленджа */}
+                  {/* Заметки челленджа - компактный дизайн */}
                   {challengeNotes.length > 0 && (
-                    <div className="bg-white p-6 rounded-lg border border-gray-200 mt-6">
-                      <h3 className="text-lg font-semibold mb-4 flex items-center gap-2">
-                        <Calendar className="w-5 h-5 text-purple-600" />
-                        Заметки студентов по челленджу ({challengeNotes.length})
+                    <div className="bg-white p-5 rounded-lg border border-gray-200">
+                      <h3 className="text-base font-semibold mb-3 flex items-center gap-2">
+                        <Calendar className="w-4 h-4 text-purple-600" />
+                        Заметки челленджа ({challengeNotes.length})
                       </h3>
                       
-                      <div className="space-y-4 max-h-96 overflow-y-auto">
+                      <div className="space-y-2 max-h-96 overflow-y-auto">
                         {challengeNotes.map((note, index) => (
                           <div 
                             key={index} 
-                            className="p-4 rounded-lg border bg-purple-50 border-purple-200"
+                            className="p-3 rounded-lg border bg-purple-50 border-purple-200"
                           >
                             <div className="flex justify-between items-start mb-2">
-                              <div>
-                                <p className="font-semibold text-gray-800">{note.user_name}</p>
-                                <p className="text-sm text-gray-600">День {note.day}</p>
-                              </div>
-                              <div className="text-right">
-                                <p className="text-xs text-gray-500">
-                                  {new Date(note.completed_at).toLocaleString('ru-RU')}
-                                </p>
-                                {note.is_challenge_completed && (
-                                  <span className="inline-block mt-1 px-2 py-1 text-xs bg-green-600 text-white rounded">
-                                    Челлендж завершен
+                              <div className="flex-1">
+                                <div className="flex items-center gap-2">
+                                  <p className="font-medium text-sm">{note.user_name}</p>
+                                  <span className="text-xs bg-purple-200 text-purple-800 px-2 py-0.5 rounded">
+                                    День {note.day}
                                   </span>
-                                )}
+                                  {note.is_challenge_completed && (
+                                    <span className="text-xs bg-green-600 text-white px-2 py-0.5 rounded">
+                                      ✓ Завершен
+                                    </span>
+                                  )}
+                                </div>
                               </div>
+                              <p className="text-xs text-gray-500">
+                                {new Date(note.completed_at).toLocaleDateString('ru-RU')}
+                              </p>
                             </div>
                             
-                            <div className="bg-white p-3 rounded border border-purple-200">
-                              <p className="text-sm text-gray-700 whitespace-pre-wrap">{note.note}</p>
+                            <div className="bg-white p-2 rounded border border-purple-200">
+                              <p className="text-xs text-gray-700 line-clamp-2">{note.note}</p>
                             </div>
                           </div>
                         ))}

@@ -1251,10 +1251,38 @@ async def get_lesson_analytics(
         passed_quizzes = len([q for q in quiz_attempts if q.get("passed")])
         avg_quiz_score = sum([q.get("score", 0) for q in quiz_attempts]) / len(quiz_attempts) if quiz_attempts else 0
         
-        # Статистика по челленджам
-        total_challenge_participants = len(challenge_progress_list)
+        # Расширенная статистика по челленджам
+        unique_challenge_users = len(set([c.get("user_id") for c in challenge_progress_list]))
+        total_challenge_attempts = len(challenge_progress_list)
         completed_challenges = len([c for c in challenge_progress_list if c.get("is_completed")])
         total_challenge_notes = sum([len(c.get("daily_notes", [])) for c in challenge_progress_list])
+        
+        # Баллы за челленджи
+        total_points_earned = sum([c.get("points_earned", 0) for c in challenge_progress_list])
+        avg_points_per_attempt = total_points_earned / total_challenge_attempts if total_challenge_attempts > 0 else 0
+        
+        # Топ студентов по баллам челленджа
+        user_points = {}
+        for c in challenge_progress_list:
+            user_id = c.get("user_id")
+            points = c.get("points_earned", 0)
+            if user_id not in user_points:
+                user_points[user_id] = {"total_points": 0, "attempts": 0, "completed": 0}
+            user_points[user_id]["total_points"] += points
+            user_points[user_id]["attempts"] += 1
+            if c.get("is_completed"):
+                user_points[user_id]["completed"] += 1
+        
+        # Прогресс по дням (для графика)
+        progress_by_date = {}
+        for progress in lesson_progress_list:
+            if progress.get("started_at"):
+                date_key = progress.get("started_at").strftime("%Y-%m-%d")
+                if date_key not in progress_by_date:
+                    progress_by_date[date_key] = {"started": 0, "completed": 0}
+                progress_by_date[date_key]["started"] += 1
+                if progress.get("is_completed"):
+                    progress_by_date[date_key]["completed"] += 1
         
         return {
             "lesson_id": lesson_id,
@@ -1269,10 +1297,19 @@ async def get_lesson_analytics(
                 "total_quiz_attempts": total_quiz_attempts,
                 "passed_quizzes": passed_quizzes,
                 "avg_quiz_score": round(avg_quiz_score, 2),
-                "total_challenge_participants": total_challenge_participants,
+                "unique_challenge_users": unique_challenge_users,
+                "total_challenge_attempts": total_challenge_attempts,
                 "completed_challenges": completed_challenges,
-                "total_challenge_notes": total_challenge_notes
+                "total_challenge_notes": total_challenge_notes,
+                "total_points_earned": total_points_earned,
+                "avg_points_per_attempt": round(avg_points_per_attempt, 2)
             },
+            "challenge_leaderboard": sorted(
+                [{"user_id": uid, **data} for uid, data in user_points.items()],
+                key=lambda x: x["total_points"],
+                reverse=True
+            )[:10],  # Топ 10
+            "progress_timeline": sorted(progress_by_date.items()),
             "students_data": [
                 {
                     "user_id": progress.get("user_id"),
