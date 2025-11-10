@@ -6,7 +6,7 @@ import { Input } from './ui/input';
 import { Label } from './ui/label';
 import { Textarea } from './ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
-import { Edit, Save, X, Plus, Trash2, BookOpen, Brain, Users, FileText, BarChart3 } from 'lucide-react';
+import { Edit, Save, X, Plus, Trash2, BookOpen, Brain, Users, FileText, BarChart3, Upload } from 'lucide-react';
 
 const LessonEditModal = ({ 
   lesson, 
@@ -347,6 +347,196 @@ const LessonEditModal = ({
     }));
   };
 
+  // Функции загрузки из файлов
+  const handleUploadTheory = (event) => {
+    const file = event.target.files[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      const text = e.target.result;
+      const blocks = parseTheoryFromText(text);
+      setEditedLesson(prev => ({
+        ...prev,
+        theory: [...(prev.theory || []), ...blocks]
+      }));
+    };
+    reader.readAsText(file);
+    event.target.value = '';
+  };
+
+  const handleUploadExercises = (event) => {
+    const file = event.target.files[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      const text = e.target.result;
+      const exercises = parseExercisesFromText(text);
+      setEditedLesson(prev => ({
+        ...prev,
+        exercises: [...(prev.exercises || []), ...exercises]
+      }));
+    };
+    reader.readAsText(file);
+    event.target.value = '';
+  };
+
+  const handleUploadChallenge = (event) => {
+    const file = event.target.files[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      const text = e.target.result;
+      const challenge = parseChallengeFromText(text);
+      setEditedLesson(prev => ({
+        ...prev,
+        challenge: challenge
+      }));
+    };
+    reader.readAsText(file);
+    event.target.value = '';
+  };
+
+  const handleUploadQuiz = (event) => {
+    const file = event.target.files[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      const text = e.target.result;
+      const quiz = parseQuizFromText(text);
+      setEditedLesson(prev => ({
+        ...prev,
+        quiz: quiz
+      }));
+    };
+    reader.readAsText(file);
+    event.target.value = '';
+  };
+
+  // Парсеры для разных типов контента
+  const parseTheoryFromText = (text) => {
+    const blocks = [];
+    const sections = text.split(/\n\n+/);
+    
+    sections.forEach((section, index) => {
+      const lines = section.trim().split('\n');
+      if (lines.length > 0) {
+        blocks.push({
+          id: `theory_${Date.now()}_${index}`,
+          title: lines[0].replace(/^#+\s*/, ''),
+          content: lines.slice(1).join('\n').trim(),
+          order: index
+        });
+      }
+    });
+    
+    return blocks;
+  };
+
+  const parseExercisesFromText = (text) => {
+    const exercises = [];
+    const exerciseBlocks = text.split(/УПРАЖНЕНИЕ \d+:/i).filter(Boolean);
+    
+    exerciseBlocks.forEach((block, index) => {
+      const lines = block.trim().split('\n');
+      const title = lines[0].trim();
+      const content = lines.slice(1).join('\n').trim();
+      
+      exercises.push({
+        id: `exercise_${Date.now()}_${index}`,
+        title: title || `Упражнение ${index + 1}`,
+        description: content.substring(0, 200),
+        instructions: content,
+        expected_outcome: '',
+        type: 'reflection',
+        order: index
+      });
+    });
+    
+    return exercises;
+  };
+
+  const parseChallengeFromText = (text) => {
+    const lines = text.split('\n');
+    const title = lines[0]?.replace(/^#+\s*/, '') || 'Новый челлендж';
+    const description = lines[1] || '';
+    
+    const dailyTasks = [];
+    let currentDay = null;
+    
+    lines.forEach(line => {
+      const dayMatch = line.match(/День (\d+):/i);
+      if (dayMatch) {
+        if (currentDay) dailyTasks.push(currentDay);
+        currentDay = {
+          day: parseInt(dayMatch[1]),
+          title: line.replace(/День \d+:\s*/i, ''),
+          description: '',
+          tasks: [],
+          completed: false
+        };
+      } else if (currentDay && line.trim().startsWith('-')) {
+        currentDay.tasks.push(line.replace(/^-\s*/, '').trim());
+      } else if (currentDay && line.trim()) {
+        currentDay.description += line.trim() + ' ';
+      }
+    });
+    
+    if (currentDay) dailyTasks.push(currentDay);
+    
+    return {
+      id: `challenge_${Date.now()}`,
+      title,
+      description,
+      duration_days: dailyTasks.length,
+      daily_tasks: dailyTasks,
+      start_date: null,
+      end_date: null
+    };
+  };
+
+  const parseQuizFromText = (text) => {
+    const lines = text.split('\n');
+    const title = lines[0]?.replace(/^#+\s*/, '') || 'Новый тест';
+    const description = lines[1] || '';
+    
+    const questions = [];
+    let currentQuestion = null;
+    
+    lines.forEach(line => {
+      const questionMatch = line.match(/^\d+\.\s*(.+)/);
+      if (questionMatch) {
+        if (currentQuestion) questions.push(currentQuestion);
+        currentQuestion = {
+          id: `q${questions.length + 1}`,
+          question: questionMatch[1],
+          type: 'multiple_choice',
+          options: [],
+          correct_answer: '',
+          explanation: '',
+          points: 10
+        };
+      } else if (currentQuestion && line.trim().match(/^[а-яА-Яa-zA-Z]\)|^-/)) {
+        const option = line.replace(/^[а-яА-Яa-zA-Z]\)\s*|^-\s*/, '').trim();
+        if (option) currentQuestion.options.push(option);
+      }
+    });
+    
+    if (currentQuestion) questions.push(currentQuestion);
+    
+    return {
+      id: `quiz_${Date.now()}`,
+      title,
+      description,
+      questions,
+      passing_score: 70,
+      time_limit_minutes: 15
+    };
+  };
+
   const handleSave = () => {
     onSave(editedLesson);
   };
@@ -509,10 +699,28 @@ const LessonEditModal = ({
             <TabsContent value="theory" className="space-y-4 mt-0">
               <div className="flex justify-between items-center mb-4">
                 <h3 className="text-lg font-semibold">Блоки теории ({editedLesson.theory?.length || 0})</h3>
-                <Button onClick={addTheoryBlock} size="sm" className="bg-blue-600">
-                  <Plus className="w-4 h-4 mr-1" />
-                  Добавить блок
-                </Button>
+                <div className="flex gap-2">
+                  <input
+                    type="file"
+                    id="upload-theory"
+                    accept=".txt,.md"
+                    onChange={handleUploadTheory}
+                    className="hidden"
+                  />
+                  <Button 
+                    onClick={() => document.getElementById('upload-theory').click()} 
+                    size="sm" 
+                    variant="outline"
+                    className="border-blue-600 text-blue-600 hover:bg-blue-50"
+                  >
+                    <Upload className="w-4 h-4 mr-1" />
+                    Загрузить из файла
+                  </Button>
+                  <Button onClick={addTheoryBlock} size="sm" className="bg-blue-600">
+                    <Plus className="w-4 h-4 mr-1" />
+                    Добавить блок
+                  </Button>
+                </div>
               </div>
 
               {editedLesson.theory?.map((block, index) => (
@@ -566,10 +774,28 @@ const LessonEditModal = ({
             <TabsContent value="exercises" className="space-y-4 mt-0">
               <div className="flex justify-between items-center mb-4">
                 <h3 className="text-lg font-semibold">Упражнения ({editedLesson.exercises?.length || 0})</h3>
-                <Button onClick={addExercise} size="sm" className="bg-green-600">
-                  <Plus className="w-4 h-4 mr-1" />
-                  Добавить упражнение
-                </Button>
+                <div className="flex gap-2">
+                  <input
+                    type="file"
+                    id="upload-exercises"
+                    accept=".txt,.md"
+                    onChange={handleUploadExercises}
+                    className="hidden"
+                  />
+                  <Button 
+                    onClick={() => document.getElementById('upload-exercises').click()} 
+                    size="sm" 
+                    variant="outline"
+                    className="border-green-600 text-green-600 hover:bg-green-50"
+                  >
+                    <Upload className="w-4 h-4 mr-1" />
+                    Загрузить из файла
+                  </Button>
+                  <Button onClick={addExercise} size="sm" className="bg-green-600">
+                    <Plus className="w-4 h-4 mr-1" />
+                    Добавить упражнение
+                  </Button>
+                </div>
               </div>
 
               {editedLesson.exercises?.map((exercise, index) => (
@@ -664,10 +890,27 @@ const LessonEditModal = ({
                 <div className="text-center py-8">
                   <Users className="w-16 h-16 mx-auto mb-4 text-purple-300" />
                   <p className="text-gray-600 mb-4">Челлендж еще не создан</p>
-                  <Button onClick={createNewChallenge} className="bg-purple-600 hover:bg-purple-700">
-                    <Plus className="w-4 h-4 mr-2" />
-                    Создать челлендж
-                  </Button>
+                  <div className="flex gap-2 justify-center">
+                    <input
+                      type="file"
+                      id="upload-challenge"
+                      accept=".txt,.md"
+                      onChange={handleUploadChallenge}
+                      className="hidden"
+                    />
+                    <Button 
+                      onClick={() => document.getElementById('upload-challenge').click()} 
+                      variant="outline"
+                      className="border-purple-600 text-purple-600 hover:bg-purple-50"
+                    >
+                      <Upload className="w-4 h-4 mr-2" />
+                      Загрузить из файла
+                    </Button>
+                    <Button onClick={createNewChallenge} className="bg-purple-600 hover:bg-purple-700">
+                      <Plus className="w-4 h-4 mr-2" />
+                      Создать челлендж
+                    </Button>
+                  </div>
                 </div>
               ) : (
                 <>
@@ -796,10 +1039,27 @@ const LessonEditModal = ({
                 <div className="text-center py-8">
                   <FileText className="w-16 h-16 mx-auto mb-4 text-red-300" />
                   <p className="text-gray-600 mb-4">Тест еще не создан</p>
-                  <Button onClick={createNewQuiz} className="bg-red-600 hover:bg-red-700">
-                    <Plus className="w-4 h-4 mr-2" />
-                    Создать тест
-                  </Button>
+                  <div className="flex gap-2 justify-center">
+                    <input
+                      type="file"
+                      id="upload-quiz"
+                      accept=".txt,.md"
+                      onChange={handleUploadQuiz}
+                      className="hidden"
+                    />
+                    <Button 
+                      onClick={() => document.getElementById('upload-quiz').click()} 
+                      variant="outline"
+                      className="border-red-600 text-red-600 hover:bg-red-50"
+                    >
+                      <Upload className="w-4 h-4 mr-2" />
+                      Загрузить из файла
+                    </Button>
+                    <Button onClick={createNewQuiz} className="bg-red-600 hover:bg-red-700">
+                      <Plus className="w-4 h-4 mr-2" />
+                      Создать тест
+                    </Button>
+                  </div>
                 </div>
               ) : (
                 <>
