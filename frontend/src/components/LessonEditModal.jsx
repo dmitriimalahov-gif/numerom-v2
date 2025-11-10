@@ -864,46 +864,46 @@ const LessonEditModal = ({
 
   return (
     <Dialog open={isOpen} onOpenChange={onClose}>
-      <DialogContent className="max-w-[95vw] w-[95vw] max-h-[95vh] h-[95vh] overflow-hidden bg-white flex flex-col">
-        <DialogHeader className="border-b border-gray-200 pb-4">
-          <DialogTitle className="flex items-center gap-2">
-            <Edit className="w-5 h-5 text-blue-600" />
+      <DialogContent className="max-w-[96vw] w-[96vw] max-h-[96vh] h-[96vh] p-0 overflow-hidden bg-white flex flex-col">
+        <DialogHeader className="border-b border-gray-200 px-8 py-6 bg-gradient-to-r from-blue-50 to-indigo-50 flex-shrink-0">
+          <DialogTitle className="flex items-center gap-3 text-2xl">
+            <Edit className="w-6 h-6 text-blue-600" />
             Редактирование урока
           </DialogTitle>
-          <DialogDescription>
+          <DialogDescription className="text-base mt-2">
             Используйте вкладки для редактирования разных разделов урока
           </DialogDescription>
         </DialogHeader>
 
-        <Tabs value={activeTab} onValueChange={setActiveTab} className="flex-1 overflow-hidden flex flex-col">
-          <TabsList className="grid w-full grid-cols-6 bg-gray-100">
-            <TabsTrigger value="general" className="flex items-center gap-1">
+        <Tabs value={activeTab} onValueChange={setActiveTab} className="flex-1 overflow-hidden flex flex-col px-8">
+          <TabsList className="grid w-full grid-cols-6 bg-gray-100 h-14 mt-4 flex-shrink-0">
+            <TabsTrigger value="general" className="flex items-center gap-2 text-base">
               <Edit className="w-4 h-4" />
               Основное
             </TabsTrigger>
-            <TabsTrigger value="theory" className="flex items-center gap-1">
+            <TabsTrigger value="theory" className="flex items-center gap-2 text-base">
               <BookOpen className="w-4 h-4" />
               Теория
             </TabsTrigger>
-            <TabsTrigger value="exercises" className="flex items-center gap-1">
+            <TabsTrigger value="exercises" className="flex items-center gap-2 text-base">
               <Brain className="w-4 h-4" />
               Упражнения
             </TabsTrigger>
-            <TabsTrigger value="challenge" className="flex items-center gap-1">
+            <TabsTrigger value="challenge" className="flex items-center gap-2 text-base">
               <Users className="w-4 h-4" />
               Челлендж
             </TabsTrigger>
-            <TabsTrigger value="quiz" className="flex items-center gap-1">
+            <TabsTrigger value="quiz" className="flex items-center gap-2 text-base">
               <FileText className="w-4 h-4" />
               Тест
             </TabsTrigger>
-            <TabsTrigger value="analytics" className="flex items-center gap-1">
+            <TabsTrigger value="analytics" className="flex items-center gap-2 text-base">
               <BarChart3 className="w-4 h-4" />
               Аналитика
             </TabsTrigger>
           </TabsList>
 
-          <div className="flex-1 overflow-y-auto p-4">
+          <div className="flex-1 overflow-y-auto py-6 pr-2" style={{ scrollbarWidth: 'thin' }}>
             {/* ОСНОВНОЕ */}
             <TabsContent value="general" className="space-y-4 mt-0">
               <div className="bg-blue-50 p-4 rounded-lg border border-blue-200">
@@ -1789,19 +1789,19 @@ const LessonEditModal = ({
           </div>
         </Tabs>
 
-        <DialogFooter className="border-t border-gray-200 pt-4">
+        <DialogFooter className="border-t border-gray-200 px-8 py-6 bg-gray-50 flex-shrink-0">
           <Button
             variant="outline"
             onClick={onClose}
-            className="border-gray-300 hover:bg-gray-100"
+            className="border-gray-300 hover:bg-gray-100 h-12 px-6 text-base"
           >
-            <X className="w-4 h-4 mr-2" />
+            <X className="w-5 h-5 mr-2" />
             Отмена
           </Button>
           <Button
             onClick={handleSave}
             disabled={isSaving}
-            className="bg-blue-600 hover:bg-blue-700 text-white"
+            className="bg-blue-600 hover:bg-blue-700 text-white h-12 px-8 text-base"
           >
             {isSaving ? (
               <>
