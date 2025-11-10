@@ -7,6 +7,7 @@
 from fastapi import FastAPI, HTTPException, Depends, UploadFile, File, Form
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
+from pydantic import BaseModel
 import motor.motor_asyncio
 import os
 from datetime import datetime, timedelta
@@ -716,17 +717,25 @@ async def get_lesson_progress(
 
 # ===== ENDPOINTS ДЛЯ ЧЕЛЛЕНДЖЕЙ (СТУДЕНТЫ) =====
 
+class ChallengeProgressRequest(BaseModel):
+    lesson_id: str
+    challenge_id: str
+    day: int
+    note: str = ""
+    completed: bool = False
+
 @app_v2.post("/api/student/challenge-progress")
 async def save_challenge_progress(
-    lesson_id: str,
-    challenge_id: str,
-    day: int,
-    note: str = "",
-    completed: bool = False,
+    request: ChallengeProgressRequest,
     current_user: dict = Depends(get_current_user)
 ):
     """Сохранить прогресс студента по челленджу"""
     try:
+        lesson_id = request.lesson_id
+        challenge_id = request.challenge_id
+        day = request.day
+        note = request.note
+        completed = request.completed
         user_id = current_user.get('user_id', current_user.get('id', 'unknown'))
         
         # Проверяем существующий прогресс
