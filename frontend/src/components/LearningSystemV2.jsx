@@ -44,6 +44,7 @@ const LearningSystemV2 = () => {
   const [challengeNotes, setChallengeNotes] = useState({});
   const [savingChallengeNote, setSavingChallengeNote] = useState({});
   const [challengeHistory, setChallengeHistory] = useState([]); // История всех попыток челленджа
+  const [quizHistory, setQuizHistory] = useState([]); // История всех попыток теста
   
   // Состояния для теста
   const [quizStarted, setQuizStarted] = useState(false);
@@ -213,6 +214,11 @@ const LearningSystemV2 = () => {
         await loadChallengeProgress(lesson.id, data.lesson.challenge.id);
         await loadChallengeHistory(lesson.id, data.lesson.challenge.id);
       }
+      
+      // Загружаем историю тестов если есть
+      if (data.lesson.quiz) {
+        await loadQuizHistory(lesson.id);
+      }
     } catch (error) {
       console.error('Error loading lesson:', error);
       setError('Ошибка загрузки урока');
@@ -268,6 +274,28 @@ const LearningSystemV2 = () => {
       }
     } catch (error) {
       console.error('Error loading challenge history:', error);
+    }
+  };
+
+  // Загрузка истории всех попыток теста
+  const loadQuizHistory = async (lessonId) => {
+    try {
+      const response = await fetch(
+        `${backendUrl}/api/student/quiz-attempts/${lessonId}`,
+        {
+          headers: {
+            'Authorization': `Bearer ${localStorage.getItem('token')}`,
+            'Content-Type': 'application/json'
+          }
+        }
+      );
+
+      if (response.ok) {
+        const data = await response.json();
+        setQuizHistory(data.attempts || []);
+      }
+    } catch (error) {
+      console.error('Error loading quiz history:', error);
     }
   };
 
@@ -427,8 +455,9 @@ const LearningSystemV2 = () => {
         console.log(`Earned ${data.points_earned} points for quiz!`);
       }
 
-      // Обновляем прогресс урока
+      // Обновляем прогресс урока и историю тестов
       await loadLessonProgress(currentLesson.id);
+      await loadQuizHistory(currentLesson.id);
 
     } catch (error) {
       console.error('Error submitting quiz:', error);
@@ -992,28 +1021,28 @@ const LearningSystemV2 = () => {
                     isDayCompleted ? 'border-green-300 bg-green-50' : 'border-gray-200'
                   }`}
                 >
-                  <div className="flex items-center justify-between mb-3">
+                <div className="flex items-center justify-between mb-3">
                     <h4 className="font-semibold text-lg">День {day.day}: {day.title}</h4>
                     <Badge variant={isDayCompleted ? "default" : "outline"} className={isDayCompleted ? 'bg-green-600' : ''}>
                       {isDayCompleted ? "✓ Выполнено" : "В процессе"}
-                    </Badge>
-                  </div>
+                  </Badge>
+                </div>
 
                   {day.description && (
-                    <div className="mb-3">
-                      <p className="text-gray-700 mb-2"><strong>Описание:</strong></p>
-                      <p className="text-gray-600">{day.description}</p>
-                    </div>
+                <div className="mb-3">
+                  <p className="text-gray-700 mb-2"><strong>Описание:</strong></p>
+                  <p className="text-gray-600">{day.description}</p>
+                </div>
                   )}
 
                   <div className="mb-4">
-                    <p className="text-gray-700 mb-2"><strong>Задачи:</strong></p>
-                    <ul className="list-disc list-inside text-gray-600 space-y-1">
-                      {day.tasks.map((task, idx) => (
-                        <li key={idx}>{task}</li>
-                      ))}
-                    </ul>
-                  </div>
+                  <p className="text-gray-700 mb-2"><strong>Задачи:</strong></p>
+                  <ul className="list-disc list-inside text-gray-600 space-y-1">
+                    {day.tasks.map((task, idx) => (
+                      <li key={idx}>{task}</li>
+                    ))}
+                  </ul>
+                </div>
 
                   {/* Поле для заметок */}
                   <div className="bg-white rounded-lg p-4 border border-gray-200 mb-3">
@@ -1070,9 +1099,9 @@ const LearningSystemV2 = () => {
                           className="flex-1 bg-green-600 hover:bg-green-700"
                         >
                           ✓ Отметить выполненным
-                        </Button>
-                      )}
-                    </div>
+                  </Button>
+                )}
+              </div>
                     
                     {dayNote && !savingChallengeNote[day.day] && (
                       <p className="text-xs text-green-600 mt-2">
@@ -1252,70 +1281,70 @@ const LearningSystemV2 = () => {
 
     // Если тест не начат - показываем стартовую страницу
     if (!quizStarted) {
-      return (
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <Target className="w-5 h-5 text-red-600" />
-              Тест на знания
-            </CardTitle>
-            <CardDescription>
-              {currentLesson.quiz?.description || "Проверьте свои знания"}
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-6">
-            <div className="text-center">
-              <div className="text-3xl font-bold text-red-600 mb-2">
+    return (
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <Target className="w-5 h-5 text-red-600" />
+            Тест на знания
+          </CardTitle>
+          <CardDescription>
+            {currentLesson.quiz?.description || "Проверьте свои знания"}
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-6">
+          <div className="text-center">
+            <div className="text-3xl font-bold text-red-600 mb-2">
                 {currentLesson.quiz.questions.length}
-              </div>
-              <p className="text-gray-600">вопросов для проверки</p>
-              <p className="text-sm text-gray-500 mt-1">
+            </div>
+            <p className="text-gray-600">вопросов для проверки</p>
+            <p className="text-sm text-gray-500 mt-1">
                 Проходной балл: {currentLesson.quiz.passing_score || 70}%
-              </p>
-            </div>
+            </p>
+          </div>
 
-            <Alert>
-              <Target className="h-4 w-4" />
-              <AlertDescription>
-                Тест поможет вам закрепить полученные знания и получить персональные рекомендации.
-              </AlertDescription>
-            </Alert>
+          <Alert>
+            <Target className="h-4 w-4" />
+            <AlertDescription>
+              Тест поможет вам закрепить полученные знания и получить персональные рекомендации.
+            </AlertDescription>
+          </Alert>
 
-            <div className="text-center">
+          <div className="text-center">
               <Button size="lg" className="px-8 py-3" onClick={startQuiz}>
-                Начать тест
-              </Button>
-            </div>
+              Начать тест
+            </Button>
+          </div>
 
-            <div className="flex justify-between">
-              {currentLesson.challenge ? (
-                <Button
-                  variant="outline"
-                  onClick={() => setCurrentSection('challenge')}
-                  className="flex items-center gap-2"
-                >
-                  <ChevronLeft className="w-4 h-4" />
-                  Назад к челленджу
-                </Button>
-              ) : (
-                <Button
-                  variant="outline"
-                  onClick={() => setCurrentSection('exercises')}
-                  className="flex items-center gap-2"
-                >
-                  <ChevronLeft className="w-4 h-4" />
-                  Назад к упражнениям
-                </Button>
-              )}
-
+          <div className="flex justify-between">
+            {currentLesson.challenge ? (
               <Button
-                onClick={() => setCurrentSection('analytics')}
+                variant="outline"
+                onClick={() => setCurrentSection('challenge')}
                 className="flex items-center gap-2"
               >
-                Перейти к аналитике
-                <ChevronRight className="w-4 h-4" />
+                <ChevronLeft className="w-4 h-4" />
+                Назад к челленджу
               </Button>
-            </div>
+            ) : (
+              <Button
+                variant="outline"
+                onClick={() => setCurrentSection('exercises')}
+                className="flex items-center gap-2"
+              >
+                <ChevronLeft className="w-4 h-4" />
+                Назад к упражнениям
+              </Button>
+            )}
+
+            <Button
+              onClick={() => setCurrentSection('analytics')}
+              className="flex items-center gap-2"
+            >
+              Перейти к аналитике
+              <ChevronRight className="w-4 h-4" />
+            </Button>
+          </div>
           </CardContent>
         </Card>
       );
@@ -1465,6 +1494,64 @@ const LearningSystemV2 = () => {
             </p>
           </div>
 
+          {/* Общие заработанные баллы */}
+          {(challengeHistory.length > 0 || quizHistory.length > 0) && (
+            <div className="bg-gradient-to-r from-yellow-50 via-amber-50 to-orange-50 rounded-lg p-6 border-2 border-yellow-300 shadow-lg">
+              <h4 className="font-semibold text-yellow-900 text-lg mb-4 flex items-center gap-2">
+                <Trophy className="w-6 h-6 text-yellow-600" />
+                Заработанные баллы
+              </h4>
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                {/* Баллы за челленджи */}
+                {challengeHistory.length > 0 && (
+                  <div className="bg-white rounded-lg p-4 border border-yellow-200">
+                    <div className="flex items-center gap-2 mb-2">
+                      <Calendar className="w-5 h-5 text-orange-600" />
+                      <p className="text-sm font-medium text-gray-700">Челленджи</p>
+            </div>
+                    <p className="text-3xl font-bold text-orange-600">
+                      {challengeHistory.reduce((sum, a) => sum + (a.points_earned || 0), 0)} 🌟
+                    </p>
+                    <p className="text-xs text-gray-600 mt-1">
+                      {challengeHistory.filter(a => a.is_completed).length} завершено
+                    </p>
+                  </div>
+                )}
+                
+                {/* Баллы за тесты */}
+                {quizHistory.length > 0 && (
+                  <div className="bg-white rounded-lg p-4 border border-purple-200">
+                    <div className="flex items-center gap-2 mb-2">
+                      <Target className="w-5 h-5 text-purple-600" />
+                      <p className="text-sm font-medium text-gray-700">Тесты</p>
+                    </div>
+                    <p className="text-3xl font-bold text-purple-600">
+                      {quizHistory.reduce((sum, a) => sum + (a.points_earned || 0), 0)} 🎯
+                    </p>
+                    <p className="text-xs text-gray-600 mt-1">
+                      {quizHistory.filter(a => a.passed).length} пройдено
+                    </p>
+                  </div>
+                )}
+                
+                {/* Общая сумма */}
+                <div className="bg-gradient-to-br from-yellow-400 to-orange-400 rounded-lg p-4 border-2 border-yellow-500 text-white">
+                  <div className="flex items-center gap-2 mb-2">
+                    <Trophy className="w-5 h-5" />
+                    <p className="text-sm font-medium">Всего</p>
+                  </div>
+                  <p className="text-4xl font-bold">
+                    {(challengeHistory.reduce((sum, a) => sum + (a.points_earned || 0), 0) +
+                      quizHistory.reduce((sum, a) => sum + (a.points_earned || 0), 0))} ⭐
+                  </p>
+                  <p className="text-xs mt-1 opacity-90">
+                    Общий результат
+                  </p>
+                </div>
+              </div>
+            </div>
+          )}
+
           {/* Статистика по разделам */}
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
             {/* Упражнения */}
@@ -1562,10 +1649,10 @@ const LearningSystemV2 = () => {
                       <p className="text-xs text-purple-600 mt-2">
                         {new Date(data.reviewed_at).toLocaleString('ru-RU')}
                       </p>
-                    </div>
+            </div>
                   );
                 })}
-              </div>
+          </div>
             </div>
           )}
 
@@ -1613,7 +1700,7 @@ const LearningSystemV2 = () => {
               <h4 className="font-semibold text-orange-900 mb-4 flex items-center gap-2">
                 <Calendar className="w-5 h-5" />
                 История прохождения челленджа
-              </h4>
+            </h4>
               <div className="space-y-3">
                 {challengeHistory.map((attempt, index) => (
                   <div 
@@ -1650,10 +1737,10 @@ const LearningSystemV2 = () => {
                         </p>
                         <p className="text-xs text-gray-600">
                           {attempt.completed_days?.length || 0} / {challengeDays} дней
-                        </p>
-                      </div>
-                    </div>
-                    
+              </p>
+            </div>
+          </div>
+
                     {/* Прогресс-бар */}
                     <div className="mb-3">
                       <Progress 
@@ -1719,6 +1806,108 @@ const LearningSystemV2 = () => {
                         {challengeHistory.reduce((sum, a) => sum + (a.points_earned || 0), 0)} 🌟
                       </p>
                       <p className="text-xs text-yellow-600">Всего баллов</p>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* История прохождения тестов */}
+          {hasQuiz && quizHistory.length > 0 && (
+            <div className="bg-gradient-to-r from-purple-50 to-indigo-50 rounded-lg p-6 border border-purple-200">
+              <h4 className="font-semibold text-purple-900 mb-4 flex items-center gap-2">
+                <Target className="w-5 h-5" />
+                История прохождения тестов
+            </h4>
+              <div className="space-y-3">
+                {quizHistory.map((attempt, index) => (
+                  <div 
+                    key={index} 
+                    className={`bg-white rounded-lg p-4 border-2 ${
+                      attempt.passed 
+                        ? 'border-green-300' 
+                        : 'border-red-300'
+                    }`}
+                  >
+                    <div className="flex items-center justify-between mb-3">
+                      <div className="flex items-center gap-3">
+                        <div className={`w-10 h-10 rounded-full flex items-center justify-center font-bold ${
+                          attempt.passed 
+                            ? 'bg-green-100 text-green-700' 
+                            : 'bg-red-100 text-red-700'
+                        }`}>
+                          #{index + 1}
+                        </div>
+                        <div>
+                          <p className="font-semibold text-gray-900">
+                            Попытка {index + 1}
+                            {attempt.passed && ' ✓'}
+                          </p>
+                          <p className="text-xs text-gray-600">
+                            {new Date(attempt.attempted_at).toLocaleString('ru-RU')}
+                          </p>
+                        </div>
+                      </div>
+                      <div className="text-right">
+                        <p className="text-2xl font-bold text-purple-600">
+                          {attempt.points_earned || 0} 🎯
+                        </p>
+                        <p className="text-xs text-gray-600">
+                          {attempt.score}%
+                        </p>
+                      </div>
+                    </div>
+                    
+                    {/* Прогресс-бар */}
+                    <div className="mb-3">
+                      <Progress 
+                        value={attempt.score} 
+                        className={`h-2 ${attempt.passed ? 'bg-green-200' : 'bg-red-200'}`}
+                      />
+                    </div>
+                    
+                    {/* Статус */}
+                    <div className="pt-3 border-t border-gray-200">
+                      {attempt.passed ? (
+                        <p className="text-sm text-green-700 font-medium">
+                          ✅ Тест пройден! Заработано {attempt.points_earned || 0} баллов
+                        </p>
+                      ) : (
+                        <p className="text-sm text-red-700 font-medium">
+                          ❌ Тест не пройден. Заработано {attempt.points_earned || 0} баллов
+                        </p>
+                      )}
+                    </div>
+                  </div>
+                ))}
+                
+                {/* Общая статистика по тестам */}
+                <div className="bg-gradient-to-r from-purple-100 to-indigo-100 rounded-lg p-4 mt-4">
+                  <div className="grid grid-cols-4 gap-4 text-center">
+                    <div>
+                      <p className="text-2xl font-bold text-purple-700">
+                        {quizHistory.length}
+                      </p>
+                      <p className="text-xs text-purple-600">Попыток</p>
+                    </div>
+                    <div>
+                      <p className="text-2xl font-bold text-green-700">
+                        {quizHistory.filter(a => a.passed).length}
+                      </p>
+                      <p className="text-xs text-green-600">Пройдено</p>
+                    </div>
+                    <div>
+                      <p className="text-2xl font-bold text-indigo-700">
+                        {Math.max(...quizHistory.map(a => a.score))}%
+                      </p>
+                      <p className="text-xs text-indigo-600">Лучший результат</p>
+                    </div>
+                    <div>
+                      <p className="text-2xl font-bold text-purple-700">
+                        {quizHistory.reduce((sum, a) => sum + (a.points_earned || 0), 0)} 🎯
+                      </p>
+                      <p className="text-xs text-purple-600">Всего баллов</p>
                     </div>
                   </div>
                 </div>
