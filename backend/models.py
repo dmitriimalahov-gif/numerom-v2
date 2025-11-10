@@ -842,3 +842,90 @@ class ScoringConfigUpdate(BaseModel):
     global_harmony_penalty: Optional[int] = None
     day_number_bonus: Optional[int] = None
     description: Optional[str] = None
+
+
+# ===== МОДЕЛИ ДЛЯ ХРАНЕНИЯ ОТВЕТОВ СТУДЕНТОВ =====
+
+class ExerciseResponse(BaseModel):
+    """Ответ студента на упражнение"""
+    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    user_id: str
+    lesson_id: str
+    exercise_id: str
+    response_text: str
+    submitted_at: datetime = Field(default_factory=datetime.utcnow)
+    reviewed: bool = False
+    admin_comment: Optional[str] = None
+    reviewed_at: Optional[datetime] = None
+    reviewed_by: Optional[str] = None
+
+class QuizAttempt(BaseModel):
+    """Попытка прохождения теста"""
+    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    user_id: str
+    lesson_id: str
+    quiz_id: str
+    answers: List[Dict[str, Any]]  # [{question_id, selected_answer, is_correct}]
+    score: int  # Набранные баллы
+    max_score: int  # Максимальные баллы
+    percentage: float  # Процент правильных ответов
+    passed: bool  # Прошел ли тест
+    started_at: datetime
+    completed_at: datetime = Field(default_factory=datetime.utcnow)
+    time_spent_minutes: Optional[int] = None
+
+class ChallengeProgress(BaseModel):
+    """Прогресс прохождения челленджа"""
+    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    user_id: str
+    lesson_id: str
+    challenge_id: str
+    started_at: datetime = Field(default_factory=datetime.utcnow)
+    completed_days: List[int] = []  # Список завершенных дней [1, 2, 3]
+    daily_notes: Dict[int, str] = {}  # {day: note}
+    is_completed: bool = False
+    completed_at: Optional[datetime] = None
+
+class LessonProgress(BaseModel):
+    """Общий прогресс по уроку"""
+    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    user_id: str
+    lesson_id: str
+    started_at: datetime = Field(default_factory=datetime.utcnow)
+    completed_at: Optional[datetime] = None
+    
+    # Прогресс по разделам
+    theory_completed: bool = False
+    exercises_completed: int = 0  # Количество завершенных упражнений
+    challenge_completed: bool = False
+    quiz_completed: bool = False
+    quiz_passed: bool = False
+    
+    # Общий прогресс
+    completion_percentage: float = 0.0
+    is_completed: bool = False
+    
+    # Метаданные
+    last_activity_at: datetime = Field(default_factory=datetime.utcnow)
+    time_spent_minutes: int = 0
+
+class StudentAnalytics(BaseModel):
+    """Аналитика по студенту для урока"""
+    user_id: str
+    lesson_id: str
+    
+    # Статистика
+    total_exercises: int
+    completed_exercises: int
+    quiz_attempts: int
+    best_quiz_score: Optional[float] = None
+    challenge_progress: Optional[int] = None  # Количество завершенных дней
+    
+    # Временные метрики
+    time_spent_minutes: int
+    first_access: datetime
+    last_access: datetime
+    
+    # Активность
+    is_active: bool
+    completion_rate: float  # Процент завершения урока
