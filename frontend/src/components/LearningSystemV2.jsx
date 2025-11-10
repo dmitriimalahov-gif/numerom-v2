@@ -43,6 +43,13 @@ const LearningSystemV2 = () => {
   const [challengeProgress, setChallengeProgress] = useState(null);
   const [challengeNotes, setChallengeNotes] = useState({});
   const [savingChallengeNote, setSavingChallengeNote] = useState({});
+  
+  // Состояния для теста
+  const [quizStarted, setQuizStarted] = useState(false);
+  const [currentQuestionIndex, setCurrentQuestionIndex] = useState(0);
+  const [quizAnswers, setQuizAnswers] = useState({});
+  const [quizCompleted, setQuizCompleted] = useState(false);
+  const [quizScore, setQuizScore] = useState(0);
 
   const backendUrl = getBackendUrl();
 
@@ -285,6 +292,62 @@ const LearningSystemV2 = () => {
     } finally {
       setSavingChallengeNote(prev => ({ ...prev, [day]: false }));
     }
+  };
+
+  // Функции для работы с тестом
+  const startQuiz = () => {
+    setQuizStarted(true);
+    setCurrentQuestionIndex(0);
+    setQuizAnswers({});
+    setQuizCompleted(false);
+    setQuizScore(0);
+  };
+
+  const handleQuizAnswer = (questionId, answer) => {
+    setQuizAnswers(prev => ({
+      ...prev,
+      [questionId]: answer
+    }));
+  };
+
+  const nextQuestion = () => {
+    if (currentQuestionIndex < currentLesson.quiz.questions.length - 1) {
+      setCurrentQuestionIndex(prev => prev + 1);
+    }
+  };
+
+  const previousQuestion = () => {
+    if (currentQuestionIndex > 0) {
+      setCurrentQuestionIndex(prev => prev - 1);
+    }
+  };
+
+  const submitQuiz = () => {
+    // Подсчет правильных ответов
+    let correctCount = 0;
+    const questions = currentLesson.quiz.questions;
+    
+    questions.forEach(question => {
+      const userAnswer = quizAnswers[question.id];
+      if (userAnswer === question.correct_answer) {
+        correctCount++;
+      }
+    });
+
+    const score = Math.round((correctCount / questions.length) * 100);
+    setQuizScore(score);
+    setQuizCompleted(true);
+
+    // Можно добавить сохранение результата в БД
+    // saveQuizResult(currentLesson.id, score, quizAnswers);
+  };
+
+  const restartQuiz = () => {
+    setQuizStarted(false);
+    setCurrentQuestionIndex(0);
+    setQuizAnswers({});
+    setQuizCompleted(false);
+    setQuizScore(0);
   };
 
   const renderLessonCard = (lesson) => {
@@ -935,70 +998,264 @@ const LearningSystemV2 = () => {
   };
 
   const renderQuizSection = () => {
+    if (!currentLesson.quiz || !currentLesson.quiz.questions || currentLesson.quiz.questions.length === 0) {
+      return (
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Target className="w-5 h-5 text-red-600" />
+              Тест на знания
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <Alert>
+              <AlertDescription>
+                Тест для этого урока пока не добавлен.
+              </AlertDescription>
+            </Alert>
+          </CardContent>
+        </Card>
+      );
+    }
+
+    // Если тест завершен - показываем результаты
+    if (quizCompleted) {
+      const passingScore = currentLesson.quiz.passing_score || 70;
+      const passed = quizScore >= passingScore;
+
+      return (
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Target className="w-5 h-5 text-red-600" />
+              Результаты теста
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-6">
+            <div className="text-center">
+              <div className={`text-6xl font-bold mb-4 ${passed ? 'text-green-600' : 'text-red-600'}`}>
+                {quizScore}%
+              </div>
+              {passed ? (
+                <div className="flex flex-col items-center gap-2">
+                  <CheckCircle className="w-16 h-16 text-green-600" />
+                  <p className="text-xl font-semibold text-green-900">Тест пройден!</p>
+                  <p className="text-gray-600">Отличная работа! Вы успешно усвоили материал.</p>
+                </div>
+              ) : (
+                <div className="flex flex-col items-center gap-2">
+                  <Target className="w-16 h-16 text-red-600" />
+                  <p className="text-xl font-semibold text-red-900">Тест не пройден</p>
+                  <p className="text-gray-600">Проходной балл: {passingScore}%. Попробуйте еще раз!</p>
+                </div>
+              )}
+            </div>
+
+            <div className="bg-gray-50 rounded-lg p-6">
+              <h4 className="font-semibold mb-4">Детальные результаты:</h4>
+              <div className="space-y-3">
+                {currentLesson.quiz.questions.map((question, index) => {
+                  const userAnswer = quizAnswers[question.id];
+                  const isCorrect = userAnswer === question.correct_answer;
+                  
+                  return (
+                    <div key={question.id} className={`p-4 rounded-lg border ${isCorrect ? 'bg-green-50 border-green-200' : 'bg-red-50 border-red-200'}`}>
+                      <div className="flex items-start gap-3">
+                        {isCorrect ? (
+                          <CheckCircle className="w-5 h-5 text-green-600 flex-shrink-0 mt-1" />
+                        ) : (
+                          <Target className="w-5 h-5 text-red-600 flex-shrink-0 mt-1" />
+                        )}
+                        <div className="flex-1">
+                          <p className="font-medium mb-2">{index + 1}. {question.question}</p>
+                          <p className="text-sm text-gray-600">Ваш ответ: {userAnswer || 'Не отвечено'}</p>
+                          {!isCorrect && (
+                            <p className="text-sm text-green-700 mt-1">Правильный ответ: {question.correct_answer}</p>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+
+            <div className="flex justify-center gap-4">
+              <Button onClick={restartQuiz} variant="outline">
+                Пройти тест заново
+              </Button>
+              <Button onClick={() => setCurrentSection('analytics')}>
+                Перейти к аналитике
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+      );
+    }
+
+    // Если тест не начат - показываем стартовую страницу
+    if (!quizStarted) {
+      return (
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Target className="w-5 h-5 text-red-600" />
+              Тест на знания
+            </CardTitle>
+            <CardDescription>
+              {currentLesson.quiz?.description || "Проверьте свои знания"}
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-6">
+            <div className="text-center">
+              <div className="text-3xl font-bold text-red-600 mb-2">
+                {currentLesson.quiz.questions.length}
+              </div>
+              <p className="text-gray-600">вопросов для проверки</p>
+              <p className="text-sm text-gray-500 mt-1">
+                Проходной балл: {currentLesson.quiz.passing_score || 70}%
+              </p>
+            </div>
+
+            <Alert>
+              <Target className="h-4 w-4" />
+              <AlertDescription>
+                Тест поможет вам закрепить полученные знания и получить персональные рекомендации.
+              </AlertDescription>
+            </Alert>
+
+            <div className="text-center">
+              <Button size="lg" className="px-8 py-3" onClick={startQuiz}>
+                Начать тест
+              </Button>
+            </div>
+
+            <div className="flex justify-between">
+              {currentLesson.challenge ? (
+                <Button
+                  variant="outline"
+                  onClick={() => setCurrentSection('challenge')}
+                  className="flex items-center gap-2"
+                >
+                  <ChevronLeft className="w-4 h-4" />
+                  Назад к челленджу
+                </Button>
+              ) : (
+                <Button
+                  variant="outline"
+                  onClick={() => setCurrentSection('exercises')}
+                  className="flex items-center gap-2"
+                >
+                  <ChevronLeft className="w-4 h-4" />
+                  Назад к упражнениям
+                </Button>
+              )}
+
+              <Button
+                onClick={() => setCurrentSection('analytics')}
+                className="flex items-center gap-2"
+              >
+                Перейти к аналитике
+                <ChevronRight className="w-4 h-4" />
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+      );
+    }
+
+    // Прохождение теста - показываем текущий вопрос
+    const currentQuestion = currentLesson.quiz.questions[currentQuestionIndex];
+    const totalQuestions = currentLesson.quiz.questions.length;
+    const progress = ((currentQuestionIndex + 1) / totalQuestions) * 100;
+    const allQuestionsAnswered = currentLesson.quiz.questions.every(q => quizAnswers[q.id]);
+
     return (
       <Card>
         <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <Target className="w-5 h-5 text-red-600" />
-            Тест на знания
+          <CardTitle className="flex items-center justify-between">
+            <span className="flex items-center gap-2">
+              <Target className="w-5 h-5 text-red-600" />
+              Вопрос {currentQuestionIndex + 1} из {totalQuestions}
+            </span>
+            <Badge variant="outline">
+              {Object.keys(quizAnswers).length} / {totalQuestions} отвечено
+            </Badge>
           </CardTitle>
-          <CardDescription>
-            {currentLesson.quiz?.description || "Проверьте свои знания"}
-          </CardDescription>
+          <Progress value={progress} className="mt-2" />
         </CardHeader>
         <CardContent className="space-y-6">
-          <div className="text-center">
-            <div className="text-3xl font-bold text-red-600 mb-2">
-              {currentLesson.quiz?.questions?.length || 0}
+          <div className="bg-blue-50 rounded-lg p-6 border border-blue-200">
+            <h3 className="text-lg font-semibold mb-4 text-gray-900">
+              {currentQuestion.question}
+            </h3>
+
+            <div className="space-y-3">
+              {currentQuestion.options.map((option, index) => {
+                const isSelected = quizAnswers[currentQuestion.id] === option;
+                
+                return (
+                  <button
+                    key={index}
+                    onClick={() => handleQuizAnswer(currentQuestion.id, option)}
+                    className={`w-full text-left p-4 rounded-lg border-2 transition-all ${
+                      isSelected
+                        ? 'border-blue-500 bg-blue-100'
+                        : 'border-gray-200 bg-white hover:border-blue-300 hover:bg-blue-50'
+                    }`}
+                  >
+                    <div className="flex items-center gap-3">
+                      <div className={`w-6 h-6 rounded-full border-2 flex items-center justify-center ${
+                        isSelected ? 'border-blue-500 bg-blue-500' : 'border-gray-300'
+                      }`}>
+                        {isSelected && <CheckCircle className="w-4 h-4 text-white" />}
+                      </div>
+                      <span className="font-medium">{option}</span>
+                    </div>
+                  </button>
+                );
+              })}
             </div>
-            <p className="text-gray-600">вопросов для проверки</p>
-            <p className="text-sm text-gray-500 mt-1">
-              Проходной балл: {currentLesson.quiz?.passing_score || 70}%
-            </p>
           </div>
 
-          <Alert>
-            <Target className="h-4 w-4" />
-            <AlertDescription>
-              Тест поможет вам закрепить полученные знания и получить персональные рекомендации.
-            </AlertDescription>
-          </Alert>
-
-          <div className="text-center">
-            <Button size="lg" className="px-8 py-3">
-              Начать тест
+          <div className="flex justify-between items-center">
+            <Button
+              variant="outline"
+              onClick={previousQuestion}
+              disabled={currentQuestionIndex === 0}
+              className="flex items-center gap-2"
+            >
+              <ChevronLeft className="w-4 h-4" />
+              Предыдущий
             </Button>
-          </div>
 
-          <div className="flex justify-between">
-            {currentLesson.challenge ? (
+            {currentQuestionIndex === totalQuestions - 1 ? (
               <Button
-                variant="outline"
-                onClick={() => setCurrentSection('challenge')}
-                className="flex items-center gap-2"
+                onClick={submitQuiz}
+                disabled={!allQuestionsAnswered}
+                className="flex items-center gap-2 bg-green-600 hover:bg-green-700"
               >
-                <ChevronLeft className="w-4 h-4" />
-                Назад к челленджу
+                Завершить тест
+                <CheckCircle className="w-4 h-4" />
               </Button>
             ) : (
               <Button
-                variant="outline"
-                onClick={() => setCurrentSection('exercises')}
+                onClick={nextQuestion}
                 className="flex items-center gap-2"
               >
-                <ChevronLeft className="w-4 h-4" />
-                Назад к упражнениям
+                Следующий
+                <ChevronRight className="w-4 h-4" />
               </Button>
             )}
-
-            <Button
-              onClick={() => setCurrentSection('analytics')}
-              className="flex items-center gap-2"
-            >
-              Перейти к аналитике
-              <ChevronRight className="w-4 h-4" />
-            </Button>
           </div>
+
+          {!allQuestionsAnswered && currentQuestionIndex === totalQuestions - 1 && (
+            <Alert>
+              <AlertDescription>
+                Ответьте на все вопросы перед завершением теста.
+              </AlertDescription>
+            </Alert>
+          )}
         </CardContent>
       </Card>
     );
