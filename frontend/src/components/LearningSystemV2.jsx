@@ -294,6 +294,16 @@ const LearningSystemV2 = () => {
     }
   };
 
+  // Сброс челленджа для повторного прохождения
+  const restartChallenge = () => {
+    setChallengeProgress(null);
+    setChallengeNotes({});
+    // Перезагружаем данные челленджа
+    if (currentLesson && currentLesson.challenge) {
+      loadChallengeProgress(currentLesson.id, currentLesson.challenge.id);
+    }
+  };
+
   // Функции для работы с тестом
   const startQuiz = () => {
     setQuizStarted(true);
@@ -1001,14 +1011,26 @@ const LearningSystemV2 = () => {
           </div>
 
           {isCompleted && (
-            <div className="bg-green-50 p-6 rounded-lg border border-green-200 text-center">
-              <div className="text-4xl mb-3">🎉</div>
-              <h3 className="text-xl font-bold text-green-800 mb-2">
-                Поздравляем! Вы завершили челлендж!
-              </h3>
-              <p className="text-green-700">
-                Вы успешно прошли все {currentLesson.challenge?.duration_days} дней челленджа
-              </p>
+            <div className="bg-green-50 p-6 rounded-lg border border-green-200">
+              <div className="text-center mb-4">
+                <div className="text-4xl mb-3">🎉</div>
+                <h3 className="text-xl font-bold text-green-800 mb-2">
+                  Поздравляем! Вы завершили челлендж!
+                </h3>
+                <p className="text-green-700 mb-4">
+                  Вы успешно прошли все {currentLesson.challenge?.duration_days} дней челленджа
+                </p>
+              </div>
+              <div className="flex justify-center">
+                <Button
+                  variant="outline"
+                  onClick={restartChallenge}
+                  className="flex items-center gap-2 border-green-600 text-green-700 hover:bg-green-100"
+                >
+                  <Calendar className="w-4 h-4" />
+                  Пройти челлендж заново
+                </Button>
+              </div>
             </div>
           )}
 
