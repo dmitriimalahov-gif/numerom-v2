@@ -292,6 +292,7 @@ const LearningSystemV2 = () => {
 
       if (response.ok) {
         const data = await response.json();
+        console.log('Quiz history loaded:', data);
         setQuizHistory(data.attempts || []);
       }
     } catch (error) {

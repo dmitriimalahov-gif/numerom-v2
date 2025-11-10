@@ -882,13 +882,14 @@ async def get_quiz_attempts(
         
         attempts = await attempts_cursor.to_list(length=None)
         
-        # Форматируем данные
+        # Форматируем данные с баллами
         formatted_attempts = []
         for attempt in attempts:
             formatted_attempts.append({
                 "id": attempt.get("id"),
                 "score": attempt.get("score"),
                 "passed": attempt.get("passed"),
+                "points_earned": attempt.get("points_earned", 0),  # Добавляем баллы
                 "attempted_at": attempt.get("attempted_at").isoformat() if attempt.get("attempted_at") else None
             })
         
@@ -896,7 +897,8 @@ async def get_quiz_attempts(
             "lesson_id": lesson_id,
             "attempts": formatted_attempts,
             "best_score": max([a["score"] for a in formatted_attempts]) if formatted_attempts else 0,
-            "total_attempts": len(formatted_attempts)
+            "total_attempts": len(formatted_attempts),
+            "total_points": sum([a.get("points_earned", 0) for a in formatted_attempts])  # Общая сумма баллов
         }
         
     except Exception as e:
