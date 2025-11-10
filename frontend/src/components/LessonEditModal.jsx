@@ -17,6 +17,11 @@ const LessonEditModal = ({
 }) => {
   const [editedLesson, setEditedLesson] = useState(lesson || {});
   const [activeTab, setActiveTab] = useState('general');
+  const [analyticsData, setAnalyticsData] = useState(null);
+  const [studentResponses, setStudentResponses] = useState([]);
+  const [loadingAnalytics, setLoadingAnalytics] = useState(false);
+  const [reviewingResponse, setReviewingResponse] = useState(null);
+  const [adminComment, setAdminComment] = useState('');
 
   // Синхронизация с пропсом lesson при его изменении
   useEffect(() => {
@@ -25,6 +30,94 @@ const LessonEditModal = ({
       setActiveTab('general'); // Сбрасываем на первую вкладку при открытии нового урока
     }
   }, [lesson, isOpen]);
+
+  // Загрузка аналитики при переключении на вкладку
+  useEffect(() => {
+    if (activeTab === 'analytics' && lesson?.id) {
+      loadAnalytics();
+    }
+  }, [activeTab, lesson?.id]);
+
+  const loadAnalytics = async () => {
+    try {
+      setLoadingAnalytics(true);
+      
+      // Загружаем статистику урока
+      const analyticsResponse = await fetch(
+        `http://localhost:8000/api/admin/analytics/lesson/${lesson.id}`,
+        {
+          headers: {
+            'Authorization': `Bearer ${localStorage.getItem('token')}`,
+            'Content-Type': 'application/json'
+          }
+        }
+      );
+      
+      if (analyticsResponse.ok) {
+        const data = await analyticsResponse.json();
+        setAnalyticsData(data);
+      }
+      
+      // Загружаем ответы студентов
+      const responsesResponse = await fetch(
+        `http://localhost:8000/api/admin/analytics/student-responses/${lesson.id}`,
+        {
+          headers: {
+            'Authorization': `Bearer ${localStorage.getItem('token')}`,
+            'Content-Type': 'application/json'
+          }
+        }
+      );
+      
+      if (responsesResponse.ok) {
+        const data = await responsesResponse.json();
+        setStudentResponses(data.responses || []);
+      }
+      
+    } catch (error) {
+      console.error('Error loading analytics:', error);
+    } finally {
+      setLoadingAnalytics(false);
+    }
+  };
+
+  const handleReviewResponse = async (responseId) => {
+    if (!adminComment.trim()) {
+      alert('Введите комментарий');
+      return;
+    }
+    
+    try {
+      const response = await fetch(
+        `http://localhost:8000/api/admin/review-response/${responseId}`,
+        {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${localStorage.getItem('token')}`,
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({ admin_comment: adminComment })
+        }
+      );
+      
+      if (response.ok) {
+        // Обновляем локальное состояние
+        setStudentResponses(prev => prev.map(r => 
+          r.id === responseId 
+            ? { ...r, reviewed: true, admin_comment: adminComment }
+            : r
+        ));
+        setReviewingResponse(null);
+        setAdminComment('');
+        alert('Комментарий добавлен');
+      } else {
+        alert('Ошибка при добавлении комментария');
+      }
+    } catch (error) {
+      console.error('Error reviewing response:', error);
+      alert('Ошибка при добавлении комментария');
+    }
+  };
 
   const handleFieldChange = (field, value) => {
     setEditedLesson(prev => ({
@@ -1481,15 +1574,160 @@ const LessonEditModal = ({
 
             {/* АНАЛИТИКА */}
             <TabsContent value="analytics" className="space-y-4 mt-0">
-              <div className="bg-indigo-50 p-4 rounded-lg border border-indigo-200">
-                <h3 className="text-lg font-semibold mb-4">Аналитика и ответы студентов</h3>
-                <p className="text-sm text-gray-600 mb-4">
-                  Раздел для просмотра ответов студентов и аналитики прохождения урока
-                </p>
-                <div className="bg-white p-4 rounded">
-                  <p className="text-sm text-gray-500">Данные аналитики будут доступны после реализации системы сбора ответов студентов</p>
+              {loadingAnalytics ? (
+                <div className="flex justify-center items-center py-12">
+                  <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-indigo-600"></div>
                 </div>
-              </div>
+              ) : analyticsData ? (
+                <>
+                  {/* Общая статистика */}
+                  <div className="bg-gradient-to-r from-indigo-50 to-purple-50 p-6 rounded-lg border border-indigo-200">
+                    <h3 className="text-lg font-semibold mb-4 flex items-center gap-2">
+                      <BarChart3 className="w-5 h-5 text-indigo-600" />
+                      Статистика урока
+                    </h3>
+                    <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                      <div className="bg-white p-4 rounded-lg shadow-sm">
+                        <p className="text-sm text-gray-600">Студентов начало</p>
+                        <p className="text-2xl font-bold text-indigo-600">{analyticsData.statistics.total_students}</p>
+                      </div>
+                      <div className="bg-white p-4 rounded-lg shadow-sm">
+                        <p className="text-sm text-gray-600">Завершили</p>
+                        <p className="text-2xl font-bold text-green-600">{analyticsData.statistics.completed_students}</p>
+                      </div>
+                      <div className="bg-white p-4 rounded-lg shadow-sm">
+                        <p className="text-sm text-gray-600">Средний прогресс</p>
+                        <p className="text-2xl font-bold text-blue-600">{analyticsData.statistics.avg_completion_percentage}%</p>
+                      </div>
+                      <div className="bg-white p-4 rounded-lg shadow-sm">
+                        <p className="text-sm text-gray-600">Ожидают проверки</p>
+                        <p className="text-2xl font-bold text-orange-600">{analyticsData.statistics.pending_review}</p>
+                      </div>
+                    </div>
+                    
+                    <div className="grid grid-cols-3 gap-4 mt-4">
+                      <div className="bg-white p-4 rounded-lg shadow-sm">
+                        <p className="text-sm text-gray-600">Всего ответов</p>
+                        <p className="text-xl font-bold text-gray-800">{analyticsData.statistics.total_exercise_responses}</p>
+                      </div>
+                      <div className="bg-white p-4 rounded-lg shadow-sm">
+                        <p className="text-sm text-gray-600">Попыток теста</p>
+                        <p className="text-xl font-bold text-gray-800">{analyticsData.statistics.total_quiz_attempts}</p>
+                      </div>
+                      <div className="bg-white p-4 rounded-lg shadow-sm">
+                        <p className="text-sm text-gray-600">Средний балл</p>
+                        <p className="text-xl font-bold text-purple-600">{analyticsData.statistics.avg_quiz_score}%</p>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Ответы студентов */}
+                  <div className="bg-white p-6 rounded-lg border border-gray-200">
+                    <h3 className="text-lg font-semibold mb-4 flex items-center gap-2">
+                      <Users className="w-5 h-5 text-indigo-600" />
+                      Ответы студентов на упражнения ({studentResponses.length})
+                    </h3>
+                    
+                    {studentResponses.length === 0 ? (
+                      <p className="text-gray-500 text-center py-8">Пока нет ответов от студентов</p>
+                    ) : (
+                      <div className="space-y-4 max-h-96 overflow-y-auto">
+                        {studentResponses.map((response) => (
+                          <div 
+                            key={response.id} 
+                            className={`p-4 rounded-lg border ${
+                              response.reviewed 
+                                ? 'bg-green-50 border-green-200' 
+                                : 'bg-yellow-50 border-yellow-200'
+                            }`}
+                          >
+                            <div className="flex justify-between items-start mb-2">
+                              <div>
+                                <p className="font-semibold text-gray-800">{response.user_name}</p>
+                                <p className="text-sm text-gray-600">{response.exercise_title}</p>
+                              </div>
+                              <div className="text-right">
+                                <p className="text-xs text-gray-500">
+                                  {new Date(response.submitted_at).toLocaleString('ru-RU')}
+                                </p>
+                                {response.reviewed ? (
+                                  <span className="inline-block mt-1 px-2 py-1 text-xs bg-green-600 text-white rounded">
+                                    Проверено
+                                  </span>
+                                ) : (
+                                  <span className="inline-block mt-1 px-2 py-1 text-xs bg-yellow-600 text-white rounded">
+                                    Ожидает проверки
+                                  </span>
+                                )}
+                              </div>
+                            </div>
+                            
+                            <div className="bg-white p-3 rounded border border-gray-200 mb-3">
+                              <p className="text-sm text-gray-700 whitespace-pre-wrap">{response.response_text}</p>
+                            </div>
+                            
+                            {response.reviewed && response.admin_comment && (
+                              <div className="bg-blue-50 p-3 rounded border border-blue-200">
+                                <p className="text-xs font-semibold text-blue-800 mb-1">Комментарий администратора:</p>
+                                <p className="text-sm text-blue-900">{response.admin_comment}</p>
+                              </div>
+                            )}
+                            
+                            {!response.reviewed && (
+                              <div className="mt-3">
+                                {reviewingResponse === response.id ? (
+                                  <div className="space-y-2">
+                                    <Textarea
+                                      value={adminComment}
+                                      onChange={(e) => setAdminComment(e.target.value)}
+                                      placeholder="Введите комментарий для студента..."
+                                      rows={3}
+                                      className="w-full"
+                                    />
+                                    <div className="flex gap-2">
+                                      <Button 
+                                        size="sm" 
+                                        onClick={() => handleReviewResponse(response.id)}
+                                        className="bg-green-600 hover:bg-green-700"
+                                      >
+                                        Сохранить комментарий
+                                      </Button>
+                                      <Button 
+                                        size="sm" 
+                                        variant="outline"
+                                        onClick={() => {
+                                          setReviewingResponse(null);
+                                          setAdminComment('');
+                                        }}
+                                      >
+                                        Отмена
+                                      </Button>
+                                    </div>
+                                  </div>
+                                ) : (
+                                  <Button 
+                                    size="sm" 
+                                    variant="outline"
+                                    onClick={() => setReviewingResponse(response.id)}
+                                    className="border-indigo-600 text-indigo-600 hover:bg-indigo-50"
+                                  >
+                                    Добавить комментарий
+                                  </Button>
+                                )}
+                              </div>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                </>
+              ) : (
+                <div className="bg-gray-50 p-8 rounded-lg border border-gray-200 text-center">
+                  <BarChart3 className="w-12 h-12 text-gray-400 mx-auto mb-4" />
+                  <p className="text-gray-600">Нажмите на вкладку "Аналитика" для загрузки данных</p>
+                </div>
+              )}
             </TabsContent>
           </div>
         </Tabs>

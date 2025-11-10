@@ -9,7 +9,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 import motor.motor_asyncio
 import os
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import List, Optional
 import uuid
 import logging
@@ -712,6 +712,272 @@ async def get_lesson_progress(
     except Exception as e:
         logger.error(f"Error getting lesson progress: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Ошибка при получении прогресса: {str(e)}")
+
+
+# ===== ENDPOINTS ДЛЯ АНАЛИТИКИ (АДМИНИСТРАТОР) =====
+
+@app_v2.get("/api/admin/analytics/lesson/{lesson_id}")
+async def get_lesson_analytics(
+    lesson_id: str,
+    current_user: dict = Depends(get_current_user)
+):
+    """Получить аналитику по уроку для администратора"""
+    try:
+        # Проверка прав администратора
+        if not current_user.get('is_admin') and not current_user.get('is_super_admin'):
+            raise HTTPException(status_code=403, detail="Доступ запрещен")
+        
+        # Получаем урок
+        lesson = await db.lessons_v2.find_one({"id": lesson_id})
+        if not lesson:
+            raise HTTPException(status_code=404, detail="Урок не найден")
+        
+        # Статистика по ответам на упражнения
+        exercise_responses = await db.exercise_responses.find({
+            "lesson_id": lesson_id
+        }).to_list(length=None)
+        
+        # Группируем ответы по студентам
+        students_responses = {}
+        for response in exercise_responses:
+            user_id = response.get("user_id")
+            if user_id not in students_responses:
+                students_responses[user_id] = []
+            students_responses[user_id].append({
+                "exercise_id": response.get("exercise_id"),
+                "response_text": response.get("response_text"),
+                "submitted_at": response.get("submitted_at").isoformat() if response.get("submitted_at") else None,
+                "reviewed": response.get("reviewed", False),
+                "admin_comment": response.get("admin_comment")
+            })
+        
+        # Статистика по прогрессу
+        lesson_progress_list = await db.lesson_progress.find({
+            "lesson_id": lesson_id
+        }).to_list(length=None)
+        
+        # Статистика по тестам
+        quiz_attempts = await db.quiz_attempts.find({
+            "lesson_id": lesson_id
+        }).to_list(length=None)
+        
+        # Статистика по челленджам
+        challenge_progress_list = await db.challenge_progress.find({
+            "lesson_id": lesson_id
+        }).to_list(length=None)
+        
+        # Общая статистика
+        total_students = len(set([p.get("user_id") for p in lesson_progress_list]))
+        completed_students = len([p for p in lesson_progress_list if p.get("is_completed")])
+        avg_completion = sum([p.get("completion_percentage", 0) for p in lesson_progress_list]) / len(lesson_progress_list) if lesson_progress_list else 0
+        
+        total_exercise_responses = len(exercise_responses)
+        reviewed_responses = len([r for r in exercise_responses if r.get("reviewed")])
+        
+        total_quiz_attempts = len(quiz_attempts)
+        passed_quizzes = len([q for q in quiz_attempts if q.get("passed")])
+        avg_quiz_score = sum([q.get("score", 0) for q in quiz_attempts]) / len(quiz_attempts) if quiz_attempts else 0
+        
+        return {
+            "lesson_id": lesson_id,
+            "lesson_title": lesson.get("title"),
+            "statistics": {
+                "total_students": total_students,
+                "completed_students": completed_students,
+                "avg_completion_percentage": round(avg_completion, 2),
+                "total_exercise_responses": total_exercise_responses,
+                "reviewed_responses": reviewed_responses,
+                "pending_review": total_exercise_responses - reviewed_responses,
+                "total_quiz_attempts": total_quiz_attempts,
+                "passed_quizzes": passed_quizzes,
+                "avg_quiz_score": round(avg_quiz_score, 2)
+            },
+            "students_data": [
+                {
+                    "user_id": progress.get("user_id"),
+                    "completion_percentage": progress.get("completion_percentage", 0),
+                    "exercises_completed": progress.get("exercises_completed", 0),
+                    "quiz_completed": progress.get("quiz_completed", False),
+                    "quiz_passed": progress.get("quiz_passed", False),
+                    "last_activity_at": progress.get("last_activity_at").isoformat() if progress.get("last_activity_at") else None
+                }
+                for progress in lesson_progress_list
+            ]
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error getting lesson analytics: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Ошибка при получении аналитики: {str(e)}")
+
+
+@app_v2.get("/api/admin/analytics/student-responses/{lesson_id}")
+async def get_student_responses_for_lesson(
+    lesson_id: str,
+    current_user: dict = Depends(get_current_user)
+):
+    """Получить все ответы студентов на упражнения урока"""
+    try:
+        # Проверка прав администратора
+        if not current_user.get('is_admin') and not current_user.get('is_super_admin'):
+            raise HTTPException(status_code=403, detail="Доступ запрещен")
+        
+        # Получаем урок
+        lesson = await db.lessons_v2.find_one({"id": lesson_id})
+        if not lesson:
+            raise HTTPException(status_code=404, detail="Урок не найден")
+        
+        # Получаем все ответы
+        responses = await db.exercise_responses.find({
+            "lesson_id": lesson_id
+        }).sort("submitted_at", -1).to_list(length=None)
+        
+        # Получаем информацию о пользователях
+        user_ids = list(set([r.get("user_id") for r in responses]))
+        users = await db.users.find({"username": {"$in": user_ids}}).to_list(length=None)
+        users_map = {u.get("username"): u.get("full_name", u.get("username")) for u in users}
+        
+        # Формируем данные по упражнениям
+        exercises_map = {ex.get("id"): ex for ex in lesson.get("exercises", [])}
+        
+        result = []
+        for response in responses:
+            exercise = exercises_map.get(response.get("exercise_id"), {})
+            result.append({
+                "id": response.get("id"),
+                "user_id": response.get("user_id"),
+                "user_name": users_map.get(response.get("user_id"), response.get("user_id")),
+                "exercise_id": response.get("exercise_id"),
+                "exercise_title": exercise.get("title", "Неизвестное упражнение"),
+                "response_text": response.get("response_text"),
+                "submitted_at": response.get("submitted_at").isoformat() if response.get("submitted_at") else None,
+                "reviewed": response.get("reviewed", False),
+                "admin_comment": response.get("admin_comment"),
+                "reviewed_at": response.get("reviewed_at").isoformat() if response.get("reviewed_at") else None,
+                "reviewed_by": response.get("reviewed_by")
+            })
+        
+        return {
+            "lesson_id": lesson_id,
+            "lesson_title": lesson.get("title"),
+            "total_responses": len(result),
+            "responses": result
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error getting student responses: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Ошибка при получении ответов: {str(e)}")
+
+
+@app_v2.post("/api/admin/review-response/{response_id}")
+async def review_student_response(
+    response_id: str,
+    admin_comment: str,
+    current_user: dict = Depends(get_current_user)
+):
+    """Добавить комментарий администратора к ответу студента"""
+    try:
+        # Проверка прав администратора
+        if not current_user.get('is_admin') and not current_user.get('is_super_admin'):
+            raise HTTPException(status_code=403, detail="Доступ запрещен")
+        
+        admin_id = current_user.get('user_id', current_user.get('id', 'unknown'))
+        
+        # Обновляем ответ
+        result = await db.exercise_responses.update_one(
+            {"id": response_id},
+            {"$set": {
+                "reviewed": True,
+                "admin_comment": admin_comment,
+                "reviewed_at": datetime.utcnow(),
+                "reviewed_by": admin_id
+            }}
+        )
+        
+        if result.matched_count == 0:
+            raise HTTPException(status_code=404, detail="Ответ не найден")
+        
+        logger.info(f"Response reviewed: response_id={response_id}, admin={admin_id}")
+        
+        return {
+            "message": "Комментарий добавлен",
+            "response_id": response_id,
+            "reviewed_at": datetime.utcnow().isoformat()
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error reviewing response: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Ошибка при добавлении комментария: {str(e)}")
+
+
+@app_v2.get("/api/admin/analytics/overview")
+async def get_analytics_overview(
+    current_user: dict = Depends(get_current_user)
+):
+    """Получить общую аналитику системы"""
+    try:
+        # Проверка прав администратора
+        if not current_user.get('is_admin') and not current_user.get('is_super_admin'):
+            raise HTTPException(status_code=403, detail="Доступ запрещен")
+        
+        # Общая статистика
+        total_lessons = await db.lessons_v2.count_documents({"is_active": True})
+        total_students = await db.users.count_documents({"is_admin": False})
+        total_responses = await db.exercise_responses.count_documents({})
+        pending_reviews = await db.exercise_responses.count_documents({"reviewed": False})
+        
+        # Активность за последние 7 дней
+        seven_days_ago = datetime.utcnow() - timedelta(days=7)
+        recent_activity = await db.lesson_progress.count_documents({
+            "last_activity_at": {"$gte": seven_days_ago}
+        })
+        
+        # Топ уроков по популярности
+        pipeline = [
+            {"$group": {
+                "_id": "$lesson_id",
+                "students_count": {"$sum": 1},
+                "avg_completion": {"$avg": "$completion_percentage"}
+            }},
+            {"$sort": {"students_count": -1}},
+            {"$limit": 5}
+        ]
+        top_lessons = await db.lesson_progress.aggregate(pipeline).to_list(length=5)
+        
+        # Получаем названия уроков
+        lesson_ids = [l.get("_id") for l in top_lessons]
+        lessons = await db.lessons_v2.find({"id": {"$in": lesson_ids}}).to_list(length=None)
+        lessons_map = {l.get("id"): l.get("title") for l in lessons}
+        
+        top_lessons_formatted = [
+            {
+                "lesson_id": l.get("_id"),
+                "lesson_title": lessons_map.get(l.get("_id"), "Неизвестный урок"),
+                "students_count": l.get("students_count"),
+                "avg_completion": round(l.get("avg_completion", 0), 2)
+            }
+            for l in top_lessons
+        ]
+        
+        return {
+            "total_lessons": total_lessons,
+            "total_students": total_students,
+            "total_responses": total_responses,
+            "pending_reviews": pending_reviews,
+            "recent_activity_7days": recent_activity,
+            "top_lessons": top_lessons_formatted
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error getting analytics overview: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Ошибка при получении общей аналитики: {str(e)}")
 
 
 if __name__ == "__main__":
