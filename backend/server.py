@@ -48,6 +48,26 @@ app_v2.add_middleware(
     allow_headers=["*"],
 )
 
+# ===== PYDANTIC МОДЕЛИ ДЛЯ ЗАПРОСОВ =====
+
+class ExerciseResponseRequest(BaseModel):
+    """Модель для сохранения ответа студента на упражнение"""
+    lesson_id: str
+    exercise_id: str
+    response_text: str
+
+class ChallengeProgressRequest(BaseModel):
+    """Модель для сохранения прогресса студента по челленджу"""
+    lesson_id: str
+    challenge_id: str
+    day: int
+    note: str = ""
+    completed: bool = False
+
+class ReviewResponseRequest(BaseModel):
+    """Модель для комментария администратора к ответу студента"""
+    admin_comment: str
+
 # Инициализация подключения к MongoDB
 @app_v2.on_event("startup")
 async def startup_event():
@@ -502,14 +522,15 @@ app = app_v2
 
 @app_v2.post("/api/student/exercise-response")
 async def submit_exercise_response(
-    lesson_id: str,
-    exercise_id: str,
-    response_text: str,
+    request: ExerciseResponseRequest,
     current_user: dict = Depends(get_current_user)
 ):
     """Сохранить ответ студента на упражнение"""
     try:
         user_id = current_user.get('user_id', current_user.get('id', 'unknown'))
+        lesson_id = request.lesson_id
+        exercise_id = request.exercise_id
+        response_text = request.response_text
         
         # Создаем или обновляем ответ
         response_data = {
@@ -716,13 +737,6 @@ async def get_lesson_progress(
 
 
 # ===== ENDPOINTS ДЛЯ ЧЕЛЛЕНДЖЕЙ (СТУДЕНТЫ) =====
-
-class ChallengeProgressRequest(BaseModel):
-    lesson_id: str
-    challenge_id: str
-    day: int
-    note: str = ""
-    completed: bool = False
 
 @app_v2.post("/api/student/challenge-progress")
 async def save_challenge_progress(
@@ -1059,9 +1073,6 @@ async def get_student_responses_for_lesson(
         logger.error(f"Error getting student responses: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Ошибка при получении ответов: {str(e)}")
 
-
-class ReviewResponseRequest(BaseModel):
-    admin_comment: str
 
 @app_v2.post("/api/admin/review-response/{response_id}")
 async def review_student_response(
