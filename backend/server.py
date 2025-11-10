@@ -1,0 +1,508 @@
+#!/usr/bin/env python3
+"""
+Сервер только для системы обучения V2
+Отдельный инстанс для тестирования новой системы обучения
+"""
+
+from fastapi import FastAPI, HTTPException, Depends, UploadFile, File, Form
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
+import motor.motor_asyncio
+import os
+from datetime import datetime
+from typing import List, Optional
+import uuid
+import logging
+
+# Импорты моделей и функций
+from models import LessonV2, TheoryBlock, Exercise, Challenge, ChallengeDay, Quiz, QuizQuestion, LessonFile
+from auth import get_current_user, create_access_token
+
+# Импорт базы данных (глобальный объект db)
+from motor.motor_asyncio import AsyncIOMotorClient
+import os
+
+# Настройка подключения к MongoDB для автономного проекта V2
+MONGODB_URL = os.getenv("MONGODB_URL", "mongodb://admin:password123@mongodb:27017/learning_v2?authSource=admin")
+client = AsyncIOMotorClient(MONGODB_URL)
+db = client.learning_v2
+
+# Настройка логирования
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
+# Создание приложения FastAPI
+app_v2 = FastAPI(
+    title="NumerOM Learning System V2",
+    description="Отдельная система обучения V2 для тестирования",
+    version="2.0.0"
+)
+
+# Настройка CORS для автономного проекта V2
+app_v2.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:3000"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# Инициализация подключения к MongoDB
+@app_v2.on_event("startup")
+async def startup_event():
+    logger.info("Learning System V2 запущен и подключен к MongoDB")
+
+@app_v2.on_event("shutdown")
+async def shutdown_event():
+    logger.info("Learning System V2 остановлен")
+
+# ===== API ТОЛЬКО ДЛЯ СИСТЕМЫ ОБУЧЕНИЯ V2 =====
+
+# Простая аутентификация для тестирования системы обучения V2
+@app_v2.post("/api/auth/login")
+async def login_v2(request_data: dict):
+    """Простая аутентификация для системы обучения V2"""
+    email = request_data.get("email", "")
+    password = request_data.get("password", "")
+
+    # Для тестирования принимаем любые credentials
+    # В реальной системе здесь должна быть проверка с основной БД
+    if email and password:
+        # Создаем тестовый токен
+        test_token = create_access_token({"sub": email, "user_id": "test_user_v2", "is_admin": True})
+
+        return {
+            "access_token": test_token,
+            "token_type": "bearer",
+            "user": {
+                "id": "test_user_v2",
+                "email": email,
+                "name": "Test User V2",
+                "is_admin": True,
+                "is_super_admin": True
+            }
+        }
+
+    raise HTTPException(status_code=401, detail="Invalid credentials")
+
+@app_v2.get("/api/user/profile")
+async def get_user_profile_v2(current_user: dict = Depends(get_current_user)):
+    """Получить профиль пользователя для системы обучения V2"""
+    return {
+        "id": current_user.get("user_id", "test_user_v2"),
+        "email": current_user.get("sub", "test@example.com"),
+        "name": "Test User V2",
+        "is_admin": True,
+        "is_super_admin": True
+    }
+
+@app_v2.get("/api/learning-v2/lessons")
+async def get_all_lessons_v2_student(current_user: dict = Depends(get_current_user)):
+    """Получить все доступные уроки V2 для студентов"""
+    try:
+        user_id = current_user['user_id']
+
+        # Получаем активные уроки
+        lessons = await db.lessons_v2.find({"is_active": True}).sort("order", 1).to_list(1000)
+
+        lessons_list = []
+        for lesson in lessons:
+            lesson_dict = dict(lesson)
+            lesson_dict.pop('_id', None)
+            # Убираем чувствительную информацию
+            lesson_dict.pop('created_by', None)
+            lesson_dict.pop('updated_by', None)
+            lessons_list.append(lesson_dict)
+
+        return {
+            "lessons": lessons_list,
+            "user_level": 10  # Все уровни доступны для тестирования
+        }
+
+    except Exception as e:
+        logger.error(f"Error getting lessons V2 for student: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Error getting lessons: {str(e)}")
+
+@app_v2.get("/api/learning-v2/lessons/{lesson_id}")
+async def get_lesson_v2_student(lesson_id: str, current_user: dict = Depends(get_current_user)):
+    """Получить урок V2 для студента"""
+    try:
+        user_id = current_user['user_id']
+
+        lesson = await db.lessons_v2.find_one({"id": lesson_id, "is_active": True})
+        if not lesson:
+            raise HTTPException(status_code=404, detail="Lesson not found")
+
+        lesson_dict = dict(lesson)
+        lesson_dict.pop('_id', None)
+        lesson_dict.pop('created_by', None)
+        lesson_dict.pop('updated_by', None)
+
+        return {
+            "lesson": lesson_dict,
+            "progress": {}  # Пока без прогресса
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error getting lesson V2 for student: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Error getting lesson: {str(e)}")
+
+@app_v2.get("/api/admin/lessons-v2")
+async def get_all_lessons_v2_admin(current_user: dict = Depends(get_current_user)):
+    """Получить все уроки V2 для админа"""
+    try:
+        logger.info(f"Current user: {current_user}")
+        # Проверка прав администратора
+        if not current_user.get('is_super_admin', False) and not current_user.get('is_admin', False):
+            logger.error(f"Access denied for user: {current_user}")
+            raise HTTPException(status_code=403, detail="Недостаточно прав")
+
+        logger.info("Access granted, querying lessons...")
+        lessons = await db.lessons_v2.find({}).sort("order", 1).to_list(1000)
+        logger.info(f"Found {len(lessons)} lessons")
+
+        lessons_list = []
+        for lesson in lessons:
+            lesson_dict = dict(lesson)
+            lesson_dict.pop('_id', None)
+            lessons_list.append(lesson_dict)
+
+        logger.info("Successfully processed lessons")
+        return {"lessons": lessons_list}
+
+    except Exception as e:
+        import traceback
+        logger.error(f"Error getting lessons V2: {str(e)}")
+        logger.error(f"Traceback: {traceback.format_exc()}")
+        raise HTTPException(status_code=500, detail=f"Error getting lessons: {str(e)}")
+
+@app_v2.put("/api/admin/lessons-v2/{lesson_id}")
+async def update_lesson_v2(
+    lesson_id: str,
+    lesson_data: dict,
+    current_user: dict = Depends(get_current_user)
+):
+    """Обновить урок V2 (полное обновление всех разделов)"""
+    try:
+        # Проверка прав администратора
+        if not current_user.get('is_super_admin', False) and not current_user.get('is_admin', False):
+            raise HTTPException(status_code=403, detail="Недостаточно прав")
+
+        # Подготовим данные для обновления
+        update_data = {
+            "title": lesson_data.get("title"),
+            "description": lesson_data.get("description"),
+            "level": lesson_data.get("level", 1),
+            "order": lesson_data.get("order", 0),
+            "points_required": lesson_data.get("points_required", 0),
+            "is_active": lesson_data.get("is_active", True),
+            "analytics_enabled": lesson_data.get("analytics_enabled", True),
+            "updated_by": current_user.get('user_id', current_user.get('id', 'admin_system')),
+            "updated_at": datetime.utcnow()
+        }
+
+        # Если указан модуль, обновим его тоже
+        if "module" in lesson_data:
+            update_data["module"] = lesson_data["module"]
+
+        # Обновляем теорию если передана
+        if "theory" in lesson_data:
+            update_data["theory"] = lesson_data["theory"]
+
+        # Обновляем упражнения если переданы
+        if "exercises" in lesson_data:
+            update_data["exercises"] = lesson_data["exercises"]
+
+        # Обновляем челлендж если передан
+        if "challenge" in lesson_data:
+            update_data["challenge"] = lesson_data["challenge"]
+
+        # Обновляем тест если передан
+        if "quiz" in lesson_data:
+            update_data["quiz"] = lesson_data["quiz"]
+
+        # Обновляем файлы если переданы
+        if "files" in lesson_data:
+            update_data["files"] = lesson_data["files"]
+
+        # Обновляем урок в базе данных
+        result = await db.lessons_v2.update_one(
+            {"id": lesson_id},
+            {"$set": update_data}
+        )
+
+        if result.matched_count == 0:
+            raise HTTPException(status_code=404, detail="Lesson not found")
+
+        logger.info(f"Lesson {lesson_id} updated successfully with all sections")
+        return {"message": "Урок успешно обновлен", "lesson_id": lesson_id}
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        import traceback
+        logger.error(f"Error updating lesson V2 {lesson_id}: {str(e)}")
+        logger.error(f"Traceback: {traceback.format_exc()}")
+        raise HTTPException(status_code=500, detail=f"Error updating lesson: {str(e)}")
+
+@app_v2.delete("/api/admin/lessons-v2/{lesson_id}")
+async def delete_lesson_v2(
+    lesson_id: str,
+    current_user: dict = Depends(get_current_user)
+):
+    """Удалить урок V2 с каскадным удалением всех связанных данных"""
+    try:
+        # Проверка прав администратора
+        if not current_user.get('is_super_admin', False) and not current_user.get('is_admin', False):
+            raise HTTPException(status_code=403, detail="Недостаточно прав")
+
+        # Проверяем существование урока
+        lesson = await db.lessons_v2.find_one({"id": lesson_id})
+        if not lesson:
+            raise HTTPException(status_code=404, detail="Урок не найден")
+
+        # Каскадное удаление связанных данных
+        # 1. Удаляем прогресс студентов по этому уроку (если есть коллекция)
+        if "lesson_progress" in await db.list_collection_names():
+            progress_result = await db.lesson_progress.delete_many({"lesson_id": lesson_id})
+            logger.info(f"Deleted {progress_result.deleted_count} progress records for lesson {lesson_id}")
+
+        # 2. Удаляем ответы студентов на упражнения (если есть коллекция)
+        if "exercise_responses" in await db.list_collection_names():
+            responses_result = await db.exercise_responses.delete_many({"lesson_id": lesson_id})
+            logger.info(f"Deleted {responses_result.deleted_count} exercise responses for lesson {lesson_id}")
+
+        # 3. Удаляем результаты тестов (если есть коллекция)
+        if "quiz_results" in await db.list_collection_names():
+            quiz_result = await db.quiz_results.delete_many({"lesson_id": lesson_id})
+            logger.info(f"Deleted {quiz_result.deleted_count} quiz results for lesson {lesson_id}")
+
+        # 4. Удаляем прогресс челленджей (если есть коллекция)
+        if "challenge_progress" in await db.list_collection_names():
+            challenge_result = await db.challenge_progress.delete_many({"lesson_id": lesson_id})
+            logger.info(f"Deleted {challenge_result.deleted_count} challenge progress records for lesson {lesson_id}")
+
+        # 5. Удаляем сам урок
+        delete_result = await db.lessons_v2.delete_one({"id": lesson_id})
+        
+        if delete_result.deleted_count == 0:
+            raise HTTPException(status_code=404, detail="Не удалось удалить урок")
+
+        logger.info(f"Lesson {lesson_id} and all related data deleted successfully by {current_user.get('user_id')}")
+        
+        return {
+            "message": "Урок и все связанные данные успешно удалены",
+            "lesson_id": lesson_id,
+            "deleted_by": current_user.get('user_id', current_user.get('id', 'admin'))
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        import traceback
+        logger.error(f"Error deleting lesson V2 {lesson_id}: {str(e)}")
+        logger.error(f"Traceback: {traceback.format_exc()}")
+        raise HTTPException(status_code=500, detail=f"Ошибка при удалении урока: {str(e)}")
+
+@app_v2.get("/api/test-db")
+async def test_database():
+    """Тест подключения к базе данных"""
+    try:
+        # Попробуем получить количество документов
+        count = await db.lessons_v2.count_documents({})
+        return {"status": "ok", "lessons_count": count}
+    except Exception as e:
+        import traceback
+        logger.error(f"Database test error: {str(e)}")
+        logger.error(f"Traceback: {traceback.format_exc()}")
+        return {"status": "error", "error": str(e)}
+
+@app_v2.post("/api/admin/lessons-v2/upload-from-file")
+async def upload_lesson_from_file_v2(
+    file: UploadFile = File(...),
+    current_user: dict = Depends(get_current_user)
+):
+    """Загрузить урок V2 из текстового файла"""
+    try:
+        # Проверка прав администратора
+        if not current_user.get('is_super_admin', False) and not current_user.get('is_admin', False):
+            raise HTTPException(status_code=403, detail="Недостаточно прав")
+
+        # Читаем файл
+        content = await file.read()
+        text_content = content.decode('utf-8')
+
+        logger.info(f"Current user: {current_user}")
+
+        # Парсим урок из файла
+        lesson_obj = parse_lesson_from_text_v2(text_content)
+
+        # Сохраняем в базу данных
+        lesson_dict = lesson_obj.dict()
+        lesson_dict['created_by'] = current_user.get('user_id', current_user.get('id', 'admin_system'))
+        lesson_dict['updated_by'] = current_user.get('user_id', current_user.get('id', 'admin_system'))
+
+        result = await db.lessons_v2.insert_one(lesson_dict)
+
+        return {
+            "message": "Урок V2 успешно загружен",
+            "lesson_id": lesson_obj.id,
+            "sections": {
+                "theory_blocks": len(lesson_obj.theory),
+                "exercises": len(lesson_obj.exercises),
+                "has_challenge": lesson_obj.challenge is not None,
+                "has_quiz": lesson_obj.quiz is not None,
+                "analytics_enabled": lesson_obj.analytics_enabled
+            }
+        }
+
+    except Exception as e:
+        logger.error(f"Error uploading lesson V2: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Error uploading lesson: {str(e)}")
+
+def parse_lesson_from_text_v2(text_content: str) -> LessonV2:
+    """Парсить урок V2 из текстового файла"""
+    lines = text_content.split('\n')
+    lesson_data = {
+        'title': '',
+        'description': '',
+        'module': 'Основы нумерологии',
+        'level': 1,
+        'order': 0,
+        'theory': [],
+        'exercises': [],
+        'challenge': None,
+        'quiz': None
+    }
+
+    current_section = None
+    current_block = None
+    block_order = 0
+    exercise_order = 0
+
+    i = 0
+    while i < len(lines):
+        line = lines[i].strip()
+
+        # Заголовок урока
+        if line.startswith('УРОК') and 'ЦИФРА' in line:
+            lesson_data['title'] = line
+            i += 1
+            continue
+
+        # Разделы
+        if '───────────────────────────────────────────────' in line:
+            i += 1
+            if i < len(lines):
+                section_title = lines[i].strip().upper()
+                if 'ВВЕДЕНИЕ' in section_title:
+                    current_section = 'introduction'
+                elif 'КЛЮЧЕВЫЕ КОНЦЕПЦИИ' in section_title:
+                    current_section = 'key_concepts'
+                elif 'ПРАКТИЧЕСКОЕ ПРИМЕНЕНИЕ' in section_title:
+                    current_section = 'practical'
+                elif 'УПРАЖНЕНИЯ' in section_title or 'ПРАКТИЧЕСКИЕ ЗАДАНИЯ' in section_title:
+                    current_section = 'exercises'
+                elif 'ЧЕЛЛЕНДЖ' in section_title or 'ВЫЗОВ' in section_title:
+                    current_section = 'challenge'
+                elif 'ТЕСТ' in section_title or 'ВОПРОСЫ' in section_title:
+                    current_section = 'quiz'
+            i += 1
+            continue
+
+        # Обрабатываем контент по разделам
+        if current_section == 'introduction' and line:
+            if not lesson_data['description']:
+                lesson_data['description'] = line
+            else:
+                lesson_data['description'] += ' ' + line
+
+        elif current_section in ['key_concepts', 'practical'] and line:
+            # Создаем или добавляем к блоку теории
+            if not current_block or current_block.get('title') != section_title:
+                current_block = {
+                    'title': section_title if section_title else current_section.replace('_', ' ').title(),
+                    'content': line,
+                    'order': block_order
+                }
+                lesson_data['theory'].append(current_block)
+                block_order += 1
+            else:
+                current_block['content'] += '\n' + line
+
+        elif current_section == 'exercises' and line.startswith('УПРАЖНЕНИЕ') or line.startswith('ЗАДАНИЕ'):
+            # Создаем упражнение
+            exercise = {
+                'title': line,
+                'description': '',
+                'type': 'reflection',
+                'instructions': '',
+                'expected_outcome': '',
+                'order': exercise_order
+            }
+
+            # Читаем описание упражнения
+            i += 1
+            while i < len(lines) and not lines[i].strip().startswith('УПРАЖНЕНИЕ') and not lines[i].strip().startswith('───────────────────────────────────────────────'):
+                if lines[i].strip():
+                    exercise['instructions'] += lines[i].strip() + '\n'
+                i += 1
+
+            lesson_data['exercises'].append(exercise)
+            exercise_order += 1
+            continue
+
+        i += 1
+
+    # Создаем объекты моделей
+    theory_blocks = [
+        TheoryBlock(
+            title=block['title'],
+            content=block['content'],
+            order=block['order']
+        ) for block in lesson_data['theory']
+    ]
+
+    exercises = [
+        Exercise(
+            title=ex['title'],
+            description=ex['instructions'][:200] + '...' if len(ex['instructions']) > 200 else ex['instructions'],
+            type='reflection',
+            instructions=ex['instructions'],
+            expected_outcome='Осознание и применение полученных знаний',
+            order=ex['order']
+        ) for ex in lesson_data['exercises']
+    ]
+
+    # Создаем урок V2
+    lesson = LessonV2(
+        title=lesson_data['title'],
+        description=lesson_data['description'],
+        module=lesson_data['module'],
+        level=lesson_data['level'],
+        order=lesson_data['order'],
+        theory=theory_blocks,
+        exercises=exercises,
+        challenge=None,
+        quiz=None,
+        created_by="admin_system",
+        updated_by="admin_system"
+    )
+
+    return lesson
+
+# Экспорт приложения для uvicorn
+app = app_v2
+
+# ===== ЗАПУСК СЕРВЕРА =====
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run(
+        "server_v2:app",
+        host="0.0.0.0",
+        port=8000,
+        reload=True,
+        log_level="info"
+    )

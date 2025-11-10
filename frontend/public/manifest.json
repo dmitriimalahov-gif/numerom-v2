@@ -1,0 +1,26 @@
+{
+  "short_name": "NumerOM",
+  "name": "NumerOM - Ведическая Нумерология",
+  "description": "Платформа для изучения ведической нумерологии и духовного развития",
+  "icons": [
+    {
+      "src": "icon-192x192.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "icon-512x512.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ],
+  "start_url": "/",
+  "display": "standalone",
+  "theme_color": "#7c3aed",
+  "background_color": "#ffffff",
+  "orientation": "portrait-primary",
+  "categories": ["education", "lifestyle"],
+  "prefer_related_applications": false
+}

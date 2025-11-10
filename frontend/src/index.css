@@ -1,0 +1,322 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+body {
+    margin: 0;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Roboto",
+        "Oxygen", "Ubuntu", "Cantarell", "Fira Sans", "Droid Sans",
+        "Helvetica Neue", sans-serif;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+}
+
+code {
+    font-family: source-code-pro, Menlo, Monaco, Consolas, "Courier New",
+        monospace;
+}
+
+@layer base {
+  :root {
+        /* Soft pastel color scheme */
+        --background: 40 25% 97%;
+        --foreground: 20 14% 15%;
+        --card: 40 25% 95%;
+        --card-foreground: 20 14% 15%;
+        --popover: 40 25% 95%;
+        --popover-foreground: 20 14% 15%;
+        --primary: 160 50% 70%; /* Soft sage green */
+        --primary-foreground: 0 0% 100%;
+        --secondary: 200 30% 85%; /* Soft blue-grey */
+        --secondary-foreground: 20 14% 15%;
+        --muted: 40 20% 92%;
+        --muted-foreground: 25 10% 45%;
+        --accent: 300 40% 85%; /* Soft lavender */
+        --accent-foreground: 20 14% 15%;
+        --destructive: 0 65% 75%; /* Soft coral */
+        --destructive-foreground: 0 0% 100%;
+        --border: 40 20% 88%;
+        --input: 40 20% 90%;
+        --ring: 160 50% 70%;
+        --numerology-1: 15 75% 85%; /* Soft coral */
+        --numerology-2: 45 70% 85%; /* Soft peach */
+        --numerology-3: 60 65% 85%; /* Soft yellow */
+        --numerology-4: 120 40% 80%; /* Soft green */
+        --numerology-5: 160 60% 65%; /* Sage green - брighter */
+        --numerology-6: 200 70% 70%; /* Soft blue - брighter */
+        --numerology-7: 250 60% 70%; /* Soft purple - брighter */
+        --numerology-8: 280 50% 85%; /* Soft magenta */
+        --numerology-9: 320 55% 85%; /* Soft pink */
+        --chart-1: 15 75% 75%;
+        --chart-2: 160 50% 70%;
+        --chart-3: 200 60% 75%;
+        --chart-4: 250 45% 75%;
+        --chart-5: 300 40% 75%;
+        --radius: 0.75rem;
+    }
+    
+  .dark {
+        /* Dark mode with muted pastels */
+        --background: 20 14% 8%;
+        --foreground: 40 25% 95%;
+        --card: 20 14% 10%;
+        --card-foreground: 40 25% 95%;
+        --popover: 20 14% 10%;
+        --popover-foreground: 40 25% 95%;
+        --primary: 160 30% 50%;
+        --primary-foreground: 40 25% 95%;
+        --secondary: 20 10% 20%;
+        --secondary-foreground: 40 25% 95%;
+        --muted: 20 10% 15%;
+        --muted-foreground: 25 10% 65%;
+        --accent: 300 20% 25%;
+        --accent-foreground: 40 25% 95%;
+        --destructive: 0 45% 45%;
+        --destructive-foreground: 40 25% 95%;
+        --border: 20 10% 20%;
+        --input: 20 10% 18%;
+        --ring: 160 30% 50%;
+        --numerology-1: 15 45% 35%;
+        --numerology-2: 45 40% 35%;
+        --numerology-3: 60 35% 35%;
+        --numerology-4: 120 25% 30%;
+        --numerology-5: 160 30% 30%;
+        --numerology-6: 200 40% 35%;
+        --numerology-7: 250 25% 35%;
+        --numerology-8: 280 30% 35%;
+        --numerology-9: 320 35% 35%;
+        --chart-1: 15 45% 45%;
+        --chart-2: 160 30% 40%;
+        --chart-3: 200 40% 45%;
+        --chart-4: 250 25% 45%;
+        --chart-5: 300 20% 45%;
+    }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+    }
+  html {
+    overflow-y: scroll;
+  }
+  body {
+    @apply bg-background text-foreground;
+    background: linear-gradient(135deg, hsl(var(--background)) 0%, hsl(40 30% 95%) 100%);
+    min-height: 100vh;
+    }
+}
+
+/* Custom gradient backgrounds for sections */
+.numerology-gradient {
+  background: linear-gradient(135deg,
+    hsl(var(--numerology-5)) 0%,
+    hsl(var(--numerology-6)) 50%,
+    hsl(var(--numerology-7)) 100%);
+}
+
+/* Animated placeholder */
+@keyframes shimmer {
+  0%, 100% { opacity: 0.5; }
+  50% { opacity: 1; }
+}
+
+input::placeholder {
+  animation: shimmer 2s ease-in-out infinite;
+}
+
+.payment-gradient {
+  background: linear-gradient(135deg, 
+    hsl(var(--numerology-3)) 0%, 
+    hsl(var(--numerology-4)) 100%);
+}
+
+/* Numerology number colors */
+.num-1 { background-color: hsl(var(--numerology-1)); }
+.num-2 { background-color: hsl(var(--numerology-2)); }
+.num-3 { background-color: hsl(var(--numerology-3)); }
+.num-4 { background-color: hsl(var(--numerology-4)); }
+.num-5 { background-color: hsl(var(--numerology-5)); }
+.num-6 { background-color: hsl(var(--numerology-6)); }
+.num-7 { background-color: hsl(var(--numerology-7)); }
+.num-8 { background-color: hsl(var(--numerology-8)); }
+.num-9 { background-color: hsl(var(--numerology-9)); }
+
+/* Mobile adaptations for iPhone 16 Pro Max and other devices */
+@media screen and (max-width: 480px) {
+  /* Better text scaling for mobile */
+  body {
+    font-size: 14px;
+    line-height: 1.4;
+  }
+  
+  /* Cards and components spacing */
+  .container {
+    padding: 0 12px;
+  }
+  
+  /* Dashboard quick actions - 2x2 grid on mobile */
+  .mobile-grid-2x2 {
+    grid-template-columns: repeat(2, 1fr) !important;
+    gap: 12px;
+  }
+  
+  /* Navigation improvements for mobile */
+  .mobile-nav-scroll {
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+  }
+  
+  .mobile-nav-scroll::-webkit-scrollbar {
+    display: none;
+  }
+  
+  /* Form inputs on mobile */
+  input, select, textarea {
+    font-size: 16px; /* Prevents zoom on iOS */
+    padding: 12px;
+  }
+  
+  /* Touch targets */
+  button, .clickable {
+    min-height: 44px; /* iOS recommended touch target */
+    min-width: 44px;
+  }
+  
+  /* Modal and drawer improvements */
+  .mobile-modal {
+    margin: 0;
+    min-height: 100vh;
+    border-radius: 0;
+  }
+}
+
+/* iPhone 16 Pro Max specific (430x932) */
+@media screen and (max-width: 430px) and (min-height: 850px) {
+  /* Utilize the full height for content */
+  .min-h-screen {
+    min-height: calc(100vh - env(safe-area-inset-top) - env(safe-area-inset-bottom));
+  }
+  
+  /* Safe area padding */
+  .safe-area-padding {
+    padding-top: env(safe-area-inset-top);
+    padding-bottom: env(safe-area-inset-bottom);
+    padding-left: env(safe-area-inset-left);
+    padding-right: env(safe-area-inset-right);
+  }
+  
+  /* Header adjustments */
+  header {
+    padding-top: calc(env(safe-area-inset-top) + 12px);
+    padding-left: env(safe-area-inset-left);
+    padding-right: env(safe-area-inset-right);
+  }
+  
+  /* Bottom navigation if needed */
+  .bottom-nav {
+    padding-bottom: calc(env(safe-area-inset-bottom) + 12px);
+  }
+}
+
+/* Landscape mode improvements */
+@media screen and (orientation: landscape) and (max-height: 430px) {
+  /* Compact header in landscape */
+  .landscape-compact {
+    padding: 8px 16px;
+  }
+  
+  /* Single column layout in landscape for better usability */
+  .landscape-single-col {
+    grid-template-columns: 1fr !important;
+  }
+}
+
+/* Enhanced Pythagorean Square mobile styling */
+.pythagorean-mobile {
+  max-width: 100%;
+  margin: 0 auto;
+}
+
+.pythagorean-mobile .square-cell {
+  min-height: 80px;
+  font-size: 12px;
+  padding: 8px;
+}
+
+.pythagorean-mobile .planet-name {
+  font-size: 10px;
+  font-weight: 600;
+}
+
+.pythagorean-mobile .planet-numbers {
+  font-size: 18px;
+  font-weight: bold;
+}
+
+.pythagorean-mobile .energy-count {
+  font-size: 10px;
+}
+
+/* Vedic time calculations mobile improvements */
+.vedic-time-mobile .time-period {
+  padding: 12px;
+  margin: 8px 0;
+}
+
+.vedic-time-mobile .time-display {
+  font-size: 18px;
+  font-weight: bold;
+}
+
+.vedic-time-mobile .period-description {
+  font-size: 12px;
+  line-height: 1.3;
+}
+
+/* Loading states mobile optimization */
+.mobile-loading {
+  padding: 24px;
+  text-align: center;
+}
+
+.mobile-loading .spinner {
+  width: 32px;
+  height: 32px;
+}
+
+/* Enhanced touch interactions */
+@media (hover: none) and (pointer: coarse) {
+  /* Remove hover effects on touch devices */
+  .hover\:shadow-lg:hover {
+    box-shadow: none;
+  }
+  
+  .hover\:-translate-y-1:hover {
+    transform: none;
+  }
+  
+  /* Add active states for better touch feedback */
+  .touch-active:active {
+    transform: scale(0.95);
+    opacity: 0.8;
+    transition: all 0.1s ease;
+  }
+}
+
+/* Print styles */
+@media print {
+  .no-print {
+    display: none !important;
+  }
+  
+  body {
+    background: white !important;
+    color: black !important;
+  }
+  
+  .print-break {
+    page-break-before: always;
+  }
+}
