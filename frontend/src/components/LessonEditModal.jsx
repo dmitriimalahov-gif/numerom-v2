@@ -6,7 +6,7 @@ import { Input } from './ui/input';
 import { Label } from './ui/label';
 import { Textarea } from './ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
-import { Edit, Save, X, Plus, Trash2, BookOpen, Brain, Users, FileText, BarChart3, Upload } from 'lucide-react';
+import { Edit, Save, X, Plus, Trash2, BookOpen, Brain, Users, FileText, BarChart3, Upload, Calendar } from 'lucide-react';
 
 const LessonEditModal = ({ 
   lesson, 
@@ -19,6 +19,7 @@ const LessonEditModal = ({
   const [activeTab, setActiveTab] = useState('general');
   const [analyticsData, setAnalyticsData] = useState(null);
   const [studentResponses, setStudentResponses] = useState([]);
+  const [challengeNotes, setChallengeNotes] = useState([]);
   const [loadingAnalytics, setLoadingAnalytics] = useState(false);
   const [reviewingResponse, setReviewingResponse] = useState(null);
   const [adminComment, setAdminComment] = useState('');
@@ -72,6 +73,22 @@ const LessonEditModal = ({
       if (responsesResponse.ok) {
         const data = await responsesResponse.json();
         setStudentResponses(data.responses || []);
+      }
+      
+      // Загружаем заметки челленджа
+      const notesResponse = await fetch(
+        `http://localhost:8000/api/admin/analytics/challenge-notes/${lesson.id}`,
+        {
+          headers: {
+            'Authorization': `Bearer ${localStorage.getItem('token')}`,
+            'Content-Type': 'application/json'
+          }
+        }
+      );
+      
+      if (notesResponse.ok) {
+        const data = await notesResponse.json();
+        setChallengeNotes(data.notes || []);
       }
       
     } catch (error) {
@@ -1721,6 +1738,46 @@ const LessonEditModal = ({
                       </div>
                     )}
                   </div>
+
+                  {/* Заметки челленджа */}
+                  {challengeNotes.length > 0 && (
+                    <div className="bg-white p-6 rounded-lg border border-gray-200 mt-6">
+                      <h3 className="text-lg font-semibold mb-4 flex items-center gap-2">
+                        <Calendar className="w-5 h-5 text-purple-600" />
+                        Заметки студентов по челленджу ({challengeNotes.length})
+                      </h3>
+                      
+                      <div className="space-y-4 max-h-96 overflow-y-auto">
+                        {challengeNotes.map((note, index) => (
+                          <div 
+                            key={index} 
+                            className="p-4 rounded-lg border bg-purple-50 border-purple-200"
+                          >
+                            <div className="flex justify-between items-start mb-2">
+                              <div>
+                                <p className="font-semibold text-gray-800">{note.user_name}</p>
+                                <p className="text-sm text-gray-600">День {note.day}</p>
+                              </div>
+                              <div className="text-right">
+                                <p className="text-xs text-gray-500">
+                                  {new Date(note.completed_at).toLocaleString('ru-RU')}
+                                </p>
+                                {note.is_challenge_completed && (
+                                  <span className="inline-block mt-1 px-2 py-1 text-xs bg-green-600 text-white rounded">
+                                    Челлендж завершен
+                                  </span>
+                                )}
+                              </div>
+                            </div>
+                            
+                            <div className="bg-white p-3 rounded border border-purple-200">
+                              <p className="text-sm text-gray-700 whitespace-pre-wrap">{note.note}</p>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
                 </>
               ) : (
                 <div className="bg-gray-50 p-8 rounded-lg border border-gray-200 text-center">

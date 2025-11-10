@@ -714,6 +714,177 @@ async def get_lesson_progress(
         raise HTTPException(status_code=500, detail=f"Ошибка при получении прогресса: {str(e)}")
 
 
+# ===== ENDPOINTS ДЛЯ ЧЕЛЛЕНДЖЕЙ (СТУДЕНТЫ) =====
+
+@app_v2.post("/api/student/challenge-progress")
+async def save_challenge_progress(
+    lesson_id: str,
+    challenge_id: str,
+    day: int,
+    note: str = "",
+    completed: bool = False,
+    current_user: dict = Depends(get_current_user)
+):
+    """Сохранить прогресс студента по челленджу"""
+    try:
+        user_id = current_user.get('user_id', current_user.get('id', 'unknown'))
+        
+        # Проверяем существующий прогресс
+        existing_progress = await db.challenge_progress.find_one({
+            "user_id": user_id,
+            "lesson_id": lesson_id,
+            "challenge_id": challenge_id
+        })
+        
+        if existing_progress:
+            # Обновляем существующий прогресс
+            daily_notes = existing_progress.get("daily_notes", [])
+            completed_days = existing_progress.get("completed_days", [])
+            
+            # Обновляем или добавляем заметку для дня
+            note_found = False
+            for i, note_item in enumerate(daily_notes):
+                if note_item.get("day") == day:
+                    daily_notes[i] = {
+                        "day": day,
+                        "note": note,
+                        "completed_at": datetime.utcnow()
+                    }
+                    note_found = True
+                    break
+            
+            if not note_found:
+                daily_notes.append({
+                    "day": day,
+                    "note": note,
+                    "completed_at": datetime.utcnow()
+                })
+            
+            # Обновляем список завершенных дней
+            if completed and day not in completed_days:
+                completed_days.append(day)
+            
+            # Определяем текущий день (максимальный завершенный + 1)
+            current_day = max(completed_days) + 1 if completed_days else 1
+            
+            # Получаем урок для определения длительности челленджа
+            lesson = await db.lessons_v2.find_one({"id": lesson_id})
+            challenge = lesson.get("challenge", {}) if lesson else {}
+            total_days = challenge.get("duration_days", 7)
+            
+            is_completed = len(completed_days) >= total_days
+            
+            await db.challenge_progress.update_one(
+                {"_id": existing_progress["_id"]},
+                {"$set": {
+                    "current_day": current_day,
+                    "completed_days": completed_days,
+                    "daily_notes": daily_notes,
+                    "is_completed": is_completed,
+                    "completed_at": datetime.utcnow() if is_completed else None
+                }}
+            )
+            
+            # Обновляем прогресс урока
+            await update_lesson_progress_with_challenge(user_id, lesson_id, is_completed)
+            
+        else:
+            # Создаем новый прогресс
+            progress_data = {
+                "id": str(uuid.uuid4()),
+                "user_id": user_id,
+                "lesson_id": lesson_id,
+                "challenge_id": challenge_id,
+                "current_day": 1,
+                "completed_days": [day] if completed else [],
+                "daily_notes": [{
+                    "day": day,
+                    "note": note,
+                    "completed_at": datetime.utcnow()
+                }],
+                "is_completed": False,
+                "started_at": datetime.utcnow(),
+                "completed_at": None
+            }
+            await db.challenge_progress.insert_one(progress_data)
+        
+        logger.info(f"Challenge progress saved: user={user_id}, lesson={lesson_id}, day={day}")
+        
+        return {
+            "message": "Прогресс сохранен",
+            "day": day,
+            "completed": completed
+        }
+        
+    except Exception as e:
+        import traceback
+        logger.error(f"Error saving challenge progress: {str(e)}")
+        logger.error(f"Traceback: {traceback.format_exc()}")
+        raise HTTPException(status_code=500, detail=f"Ошибка при сохранении прогресса: {str(e)}")
+
+
+@app_v2.get("/api/student/challenge-progress/{lesson_id}/{challenge_id}")
+async def get_challenge_progress(
+    lesson_id: str,
+    challenge_id: str,
+    current_user: dict = Depends(get_current_user)
+):
+    """Получить прогресс студента по челленджу"""
+    try:
+        user_id = current_user.get('user_id', current_user.get('id', 'unknown'))
+        
+        progress = await db.challenge_progress.find_one({
+            "user_id": user_id,
+            "lesson_id": lesson_id,
+            "challenge_id": challenge_id
+        })
+        
+        if not progress:
+            return {
+                "current_day": 1,
+                "completed_days": [],
+                "daily_notes": [],
+                "is_completed": False
+            }
+        
+        return {
+            "current_day": progress.get("current_day", 1),
+            "completed_days": progress.get("completed_days", []),
+            "daily_notes": progress.get("daily_notes", []),
+            "is_completed": progress.get("is_completed", False),
+            "started_at": progress.get("started_at").isoformat() if progress.get("started_at") else None
+        }
+        
+    except Exception as e:
+        logger.error(f"Error getting challenge progress: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Ошибка при получении прогресса: {str(e)}")
+
+
+async def update_lesson_progress_with_challenge(user_id: str, lesson_id: str, challenge_completed: bool):
+    """Обновить прогресс урока с учетом челленджа"""
+    try:
+        # Получаем существующий прогресс
+        progress = await db.lesson_progress.find_one({
+            "user_id": user_id,
+            "lesson_id": lesson_id
+        })
+        
+        if progress:
+            await db.lesson_progress.update_one(
+                {"_id": progress["_id"]},
+                {"$set": {
+                    "challenge_completed": challenge_completed,
+                    "last_activity_at": datetime.utcnow()
+                }}
+            )
+            
+            # Пересчитываем процент завершения
+            await update_lesson_progress(user_id, lesson_id)
+        
+    except Exception as e:
+        logger.error(f"Error updating lesson progress with challenge: {str(e)}")
+
+
 # ===== ENDPOINTS ДЛЯ АНАЛИТИКИ (АДМИНИСТРАТОР) =====
 
 @app_v2.get("/api/admin/analytics/lesson/{lesson_id}")
@@ -778,6 +949,11 @@ async def get_lesson_analytics(
         passed_quizzes = len([q for q in quiz_attempts if q.get("passed")])
         avg_quiz_score = sum([q.get("score", 0) for q in quiz_attempts]) / len(quiz_attempts) if quiz_attempts else 0
         
+        # Статистика по челленджам
+        total_challenge_participants = len(challenge_progress_list)
+        completed_challenges = len([c for c in challenge_progress_list if c.get("is_completed")])
+        total_challenge_notes = sum([len(c.get("daily_notes", [])) for c in challenge_progress_list])
+        
         return {
             "lesson_id": lesson_id,
             "lesson_title": lesson.get("title"),
@@ -790,7 +966,10 @@ async def get_lesson_analytics(
                 "pending_review": total_exercise_responses - reviewed_responses,
                 "total_quiz_attempts": total_quiz_attempts,
                 "passed_quizzes": passed_quizzes,
-                "avg_quiz_score": round(avg_quiz_score, 2)
+                "avg_quiz_score": round(avg_quiz_score, 2),
+                "total_challenge_participants": total_challenge_participants,
+                "completed_challenges": completed_challenges,
+                "total_challenge_notes": total_challenge_notes
             },
             "students_data": [
                 {
@@ -913,6 +1092,61 @@ async def review_student_response(
     except Exception as e:
         logger.error(f"Error reviewing response: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Ошибка при добавлении комментария: {str(e)}")
+
+
+@app_v2.get("/api/admin/analytics/challenge-notes/{lesson_id}")
+async def get_challenge_notes_for_lesson(
+    lesson_id: str,
+    current_user: dict = Depends(get_current_user)
+):
+    """Получить все заметки студентов по челленджу урока"""
+    try:
+        # Проверка прав администратора
+        if not current_user.get('is_admin') and not current_user.get('is_super_admin'):
+            raise HTTPException(status_code=403, detail="Доступ запрещен")
+        
+        # Получаем урок
+        lesson = await db.lessons_v2.find_one({"id": lesson_id})
+        if not lesson:
+            raise HTTPException(status_code=404, detail="Урок не найден")
+        
+        # Получаем все прогрессы по челленджу
+        challenge_progresses = await db.challenge_progress.find({
+            "lesson_id": lesson_id
+        }).sort("started_at", -1).to_list(length=None)
+        
+        # Получаем информацию о пользователях
+        user_ids = list(set([p.get("user_id") for p in challenge_progresses]))
+        users = await db.users.find({"username": {"$in": user_ids}}).to_list(length=None)
+        users_map = {u.get("username"): u.get("full_name", u.get("username")) for u in users}
+        
+        # Формируем данные
+        result = []
+        for progress in challenge_progresses:
+            daily_notes = progress.get("daily_notes", [])
+            for note_item in daily_notes:
+                if note_item.get("note"):  # Только если есть текст заметки
+                    result.append({
+                        "user_id": progress.get("user_id"),
+                        "user_name": users_map.get(progress.get("user_id"), progress.get("user_id")),
+                        "day": note_item.get("day"),
+                        "note": note_item.get("note"),
+                        "completed_at": note_item.get("completed_at").isoformat() if note_item.get("completed_at") else None,
+                        "is_challenge_completed": progress.get("is_completed", False)
+                    })
+        
+        return {
+            "lesson_id": lesson_id,
+            "lesson_title": lesson.get("title"),
+            "total_notes": len(result),
+            "notes": result
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error getting challenge notes: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Ошибка при получении заметок: {str(e)}")
 
 
 @app_v2.get("/api/admin/analytics/overview")

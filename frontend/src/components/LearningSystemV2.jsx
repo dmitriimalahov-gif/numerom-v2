@@ -39,6 +39,9 @@ const LearningSystemV2 = () => {
   const [exerciseResponses, setExerciseResponses] = useState({});
   const [savingResponse, setSavingResponse] = useState({});
   const [lessonProgress, setLessonProgress] = useState(null);
+  const [challengeProgress, setChallengeProgress] = useState(null);
+  const [challengeNotes, setChallengeNotes] = useState({});
+  const [savingChallengeNote, setSavingChallengeNote] = useState({});
 
   const backendUrl = getBackendUrl();
 
@@ -191,9 +194,91 @@ const LearningSystemV2 = () => {
       // Загружаем ответы и прогресс для этого урока
       await loadExerciseResponses(lesson.id);
       await loadLessonProgress(lesson.id);
+      
+      // Загружаем прогресс челленджа если есть
+      if (data.lesson.challenge) {
+        await loadChallengeProgress(lesson.id, data.lesson.challenge.id);
+      }
     } catch (error) {
       console.error('Error loading lesson:', error);
       setError('Ошибка загрузки урока');
+    }
+  };
+
+  // Загрузка прогресса челленджа
+  const loadChallengeProgress = async (lessonId, challengeId) => {
+    try {
+      const response = await fetch(
+        `${backendUrl}/api/student/challenge-progress/${lessonId}/${challengeId}`,
+        {
+          headers: {
+            'Authorization': `Bearer ${localStorage.getItem('token')}`,
+            'Content-Type': 'application/json'
+          }
+        }
+      );
+
+      if (response.ok) {
+        const data = await response.json();
+        setChallengeProgress(data);
+        
+        // Загружаем заметки в локальное состояние
+        const notes = {};
+        data.daily_notes.forEach(note => {
+          notes[note.day] = note.note;
+        });
+        setChallengeNotes(notes);
+      }
+    } catch (error) {
+      console.error('Error loading challenge progress:', error);
+    }
+  };
+
+  // Сохранение заметки челленджа
+  const saveChallengeNote = async (lessonId, challengeId, day, note, completed = false) => {
+    try {
+      setSavingChallengeNote(prev => ({ ...prev, [day]: true }));
+
+      const response = await fetch(
+        `${backendUrl}/api/student/challenge-progress`,
+        {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${localStorage.getItem('token')}`,
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({
+            lesson_id: lessonId,
+            challenge_id: challengeId,
+            day: day,
+            note: note,
+            completed: completed
+          })
+        }
+      );
+
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+
+      const data = await response.json();
+      
+      // Обновляем локальное состояние
+      setChallengeNotes(prev => ({
+        ...prev,
+        [day]: note
+      }));
+
+      // Перезагружаем прогресс
+      await loadChallengeProgress(lessonId, challengeId);
+      await loadLessonProgress(lessonId);
+
+      return data;
+    } catch (error) {
+      console.error('Error saving challenge note:', error);
+      throw error;
+    } finally {
+      setSavingChallengeNote(prev => ({ ...prev, [day]: false }));
     }
   };
 
@@ -649,6 +734,9 @@ const LearningSystemV2 = () => {
   };
 
   const renderChallengeSection = () => {
+    const completedDays = challengeProgress?.completed_days || [];
+    const isCompleted = challengeProgress?.is_completed || false;
+
     return (
       <Card>
         <CardHeader>
@@ -661,45 +749,135 @@ const LearningSystemV2 = () => {
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-6">
-          <div className="text-center">
+          <div className="text-center bg-purple-50 p-4 rounded-lg">
             <div className="text-3xl font-bold text-purple-600 mb-2">
-              {currentLesson.challenge?.duration_days} дней
+              {completedDays.length} / {currentLesson.challenge?.duration_days} дней
             </div>
-            <p className="text-gray-600">чтобы закрепить материал</p>
+            <p className="text-gray-600">
+              {isCompleted ? '🎉 Челлендж завершен!' : 'Продолжайте выполнять задания'}
+            </p>
+            <Progress 
+              value={(completedDays.length / currentLesson.challenge?.duration_days) * 100} 
+              className="mt-3"
+            />
           </div>
 
           <div className="space-y-4">
-            {currentLesson.challenge?.daily_tasks?.map((day, index) => (
-              <div key={day.day} className="border border-gray-200 rounded-lg p-4">
-                <div className="flex items-center justify-between mb-3">
-                  <h4 className="font-semibold">День {day.day}: {day.title}</h4>
-                  <Badge variant={day.completed ? "default" : "outline"}>
-                    {day.completed ? "✓ Выполнено" : "В процессе"}
-                  </Badge>
-                </div>
+            {currentLesson.challenge?.daily_tasks?.map((day) => {
+              const isDayCompleted = completedDays.includes(day.day);
+              const dayNote = challengeNotes[day.day] || '';
+              
+              return (
+                <div 
+                  key={day.day} 
+                  className={`border rounded-lg p-4 ${
+                    isDayCompleted ? 'border-green-300 bg-green-50' : 'border-gray-200'
+                  }`}
+                >
+                  <div className="flex items-center justify-between mb-3">
+                    <h4 className="font-semibold text-lg">День {day.day}: {day.title}</h4>
+                    <Badge variant={isDayCompleted ? "default" : "outline"} className={isDayCompleted ? 'bg-green-600' : ''}>
+                      {isDayCompleted ? "✓ Выполнено" : "В процессе"}
+                    </Badge>
+                  </div>
 
-                <div className="mb-3">
-                  <p className="text-gray-700 mb-2"><strong>Описание:</strong></p>
-                  <p className="text-gray-600">{day.description}</p>
-                </div>
+                  {day.description && (
+                    <div className="mb-3">
+                      <p className="text-gray-700 mb-2"><strong>Описание:</strong></p>
+                      <p className="text-gray-600">{day.description}</p>
+                    </div>
+                  )}
 
-                <div className="mb-3">
-                  <p className="text-gray-700 mb-2"><strong>Задачи:</strong></p>
-                  <ul className="list-disc list-inside text-gray-600 space-y-1">
-                    {day.tasks.map((task, idx) => (
-                      <li key={idx}>{task}</li>
-                    ))}
-                  </ul>
-                </div>
+                  <div className="mb-4">
+                    <p className="text-gray-700 mb-2"><strong>Задачи:</strong></p>
+                    <ul className="list-disc list-inside text-gray-600 space-y-1">
+                      {day.tasks.map((task, idx) => (
+                        <li key={idx}>{task}</li>
+                      ))}
+                    </ul>
+                  </div>
 
-                {!day.completed && (
-                  <Button size="sm" className="w-full">
-                    Отметить как выполненное
-                  </Button>
-                )}
-              </div>
-            ))}
+                  {/* Поле для заметок */}
+                  <div className="bg-white rounded-lg p-4 border border-gray-200 mb-3">
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                      📝 Ваши заметки и наблюдения:
+                    </label>
+                    <textarea
+                      className="w-full p-3 border border-gray-300 rounded-md focus:ring-2 focus:ring-purple-500 focus:border-transparent"
+                      rows={4}
+                      placeholder="Запишите свои мысли, наблюдения и результаты выполнения задач..."
+                      value={dayNote}
+                      onChange={(e) => {
+                        setChallengeNotes(prev => ({
+                          ...prev,
+                          [day.day]: e.target.value
+                        }));
+                      }}
+                    />
+                    <div className="flex gap-2 mt-2">
+                      <Button 
+                        size="sm"
+                        variant="outline"
+                        onClick={() => saveChallengeNote(
+                          currentLesson.id, 
+                          currentLesson.challenge.id, 
+                          day.day, 
+                          dayNote,
+                          false
+                        )}
+                        disabled={savingChallengeNote[day.day]}
+                        className="flex-1"
+                      >
+                        {savingChallengeNote[day.day] ? (
+                          <>
+                            <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-purple-600 mr-2"></div>
+                            Сохранение...
+                          </>
+                        ) : (
+                          <>💾 Сохранить заметку</>
+                        )}
+                      </Button>
+                      
+                      {!isDayCompleted && dayNote && (
+                        <Button 
+                          size="sm"
+                          onClick={() => saveChallengeNote(
+                            currentLesson.id, 
+                            currentLesson.challenge.id, 
+                            day.day, 
+                            dayNote,
+                            true
+                          )}
+                          disabled={savingChallengeNote[day.day]}
+                          className="flex-1 bg-green-600 hover:bg-green-700"
+                        >
+                          ✓ Отметить выполненным
+                        </Button>
+                      )}
+                    </div>
+                    
+                    {dayNote && !savingChallengeNote[day.day] && (
+                      <p className="text-xs text-green-600 mt-2">
+                        ✓ Заметка сохранена
+                      </p>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
           </div>
+
+          {isCompleted && (
+            <div className="bg-green-50 p-6 rounded-lg border border-green-200 text-center">
+              <div className="text-4xl mb-3">🎉</div>
+              <h3 className="text-xl font-bold text-green-800 mb-2">
+                Поздравляем! Вы завершили челлендж!
+              </h3>
+              <p className="text-green-700">
+                Вы успешно прошли все {currentLesson.challenge?.duration_days} дней челленджа
+              </p>
+            </div>
+          )}
 
           <div className="flex justify-between">
             <Button
