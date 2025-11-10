@@ -864,7 +864,7 @@ const LessonEditModal = ({
 
   return (
     <Dialog open={isOpen} onOpenChange={onClose}>
-      <DialogContent className="max-w-4xl max-h-[90vh] overflow-hidden bg-white flex flex-col">
+      <DialogContent className="max-w-[95vw] w-[95vw] max-h-[95vh] h-[95vh] overflow-hidden bg-white flex flex-col">
         <DialogHeader className="border-b border-gray-200 pb-4">
           <DialogTitle className="flex items-center gap-2">
             <Edit className="w-5 h-5 text-blue-600" />
