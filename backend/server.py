@@ -497,6 +497,223 @@ def parse_lesson_from_text_v2(text_content: str) -> LessonV2:
 app = app_v2
 
 # ===== ЗАПУСК СЕРВЕРА =====
+# ===== ENDPOINTS ДЛЯ ОТВЕТОВ СТУДЕНТОВ =====
+
+@app_v2.post("/api/student/exercise-response")
+async def submit_exercise_response(
+    lesson_id: str,
+    exercise_id: str,
+    response_text: str,
+    current_user: dict = Depends(get_current_user)
+):
+    """Сохранить ответ студента на упражнение"""
+    try:
+        user_id = current_user.get('user_id', current_user.get('id', 'unknown'))
+        
+        # Создаем или обновляем ответ
+        response_data = {
+            "id": str(uuid.uuid4()),
+            "user_id": user_id,
+            "lesson_id": lesson_id,
+            "exercise_id": exercise_id,
+            "response_text": response_text,
+            "submitted_at": datetime.utcnow(),
+            "reviewed": False,
+            "admin_comment": None,
+            "reviewed_at": None,
+            "reviewed_by": None
+        }
+        
+        # Проверяем, есть ли уже ответ на это упражнение
+        existing_response = await db.exercise_responses.find_one({
+            "user_id": user_id,
+            "lesson_id": lesson_id,
+            "exercise_id": exercise_id
+        })
+        
+        if existing_response:
+            # Обновляем существующий ответ
+            await db.exercise_responses.update_one(
+                {"_id": existing_response["_id"]},
+                {"$set": {
+                    "response_text": response_text,
+                    "submitted_at": datetime.utcnow()
+                }}
+            )
+            response_id = existing_response.get("id", existing_response["_id"])
+        else:
+            # Создаем новый ответ
+            await db.exercise_responses.insert_one(response_data)
+            response_id = response_data["id"]
+        
+        # Обновляем прогресс урока
+        await update_lesson_progress(user_id, lesson_id)
+        
+        logger.info(f"Exercise response saved: user={user_id}, lesson={lesson_id}, exercise={exercise_id}")
+        
+        return {
+            "message": "Ответ сохранен",
+            "response_id": response_id,
+            "submitted_at": response_data["submitted_at"].isoformat()
+        }
+        
+    except Exception as e:
+        import traceback
+        logger.error(f"Error saving exercise response: {str(e)}")
+        logger.error(f"Traceback: {traceback.format_exc()}")
+        raise HTTPException(status_code=500, detail=f"Ошибка при сохранении ответа: {str(e)}")
+
+
+@app_v2.get("/api/student/exercise-response/{lesson_id}/{exercise_id}")
+async def get_exercise_response(
+    lesson_id: str,
+    exercise_id: str,
+    current_user: dict = Depends(get_current_user)
+):
+    """Получить ответ студента на упражнение"""
+    try:
+        user_id = current_user.get('user_id', current_user.get('id', 'unknown'))
+        
+        response = await db.exercise_responses.find_one({
+            "user_id": user_id,
+            "lesson_id": lesson_id,
+            "exercise_id": exercise_id
+        })
+        
+        if not response:
+            return {"response_text": "", "submitted_at": None}
+        
+        return {
+            "response_text": response.get("response_text", ""),
+            "submitted_at": response.get("submitted_at").isoformat() if response.get("submitted_at") else None,
+            "reviewed": response.get("reviewed", False),
+            "admin_comment": response.get("admin_comment")
+        }
+        
+    except Exception as e:
+        logger.error(f"Error getting exercise response: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Ошибка при получении ответа: {str(e)}")
+
+
+async def update_lesson_progress(user_id: str, lesson_id: str):
+    """Обновить прогресс студента по уроку"""
+    try:
+        # Получаем урок
+        lesson = await db.lessons_v2.find_one({"id": lesson_id})
+        if not lesson:
+            return
+        
+        # Подсчитываем количество выполненных упражнений
+        total_exercises = len(lesson.get("exercises", []))
+        completed_exercises = await db.exercise_responses.count_documents({
+            "user_id": user_id,
+            "lesson_id": lesson_id
+        })
+        
+        # Проверяем прогресс по другим разделам
+        theory_completed = False  # TODO: добавить отслеживание просмотра теории
+        challenge_completed = False  # TODO: проверить прогресс челленджа
+        quiz_completed = False  # TODO: проверить результаты теста
+        
+        # Вычисляем процент завершения
+        total_sections = 0
+        completed_sections = 0
+        
+        if lesson.get("theory"):
+            total_sections += 1
+            if theory_completed:
+                completed_sections += 1
+        
+        if lesson.get("exercises"):
+            total_sections += 1
+            if completed_exercises >= total_exercises:
+                completed_sections += 1
+        
+        if lesson.get("challenge"):
+            total_sections += 1
+            if challenge_completed:
+                completed_sections += 1
+        
+        if lesson.get("quiz"):
+            total_sections += 1
+            if quiz_completed:
+                completed_sections += 1
+        
+        completion_percentage = (completed_sections / total_sections * 100) if total_sections > 0 else 0
+        
+        # Обновляем или создаем запись прогресса
+        progress_data = {
+            "user_id": user_id,
+            "lesson_id": lesson_id,
+            "exercises_completed": completed_exercises,
+            "theory_completed": theory_completed,
+            "challenge_completed": challenge_completed,
+            "quiz_completed": quiz_completed,
+            "quiz_passed": False,
+            "completion_percentage": completion_percentage,
+            "is_completed": completion_percentage >= 100,
+            "last_activity_at": datetime.utcnow()
+        }
+        
+        existing_progress = await db.lesson_progress.find_one({
+            "user_id": user_id,
+            "lesson_id": lesson_id
+        })
+        
+        if existing_progress:
+            await db.lesson_progress.update_one(
+                {"_id": existing_progress["_id"]},
+                {"$set": progress_data}
+            )
+        else:
+            progress_data["id"] = str(uuid.uuid4())
+            progress_data["started_at"] = datetime.utcnow()
+            progress_data["completed_at"] = None
+            progress_data["time_spent_minutes"] = 0
+            await db.lesson_progress.insert_one(progress_data)
+        
+        logger.info(f"Lesson progress updated: user={user_id}, lesson={lesson_id}, completion={completion_percentage}%")
+        
+    except Exception as e:
+        logger.error(f"Error updating lesson progress: {str(e)}")
+
+
+@app_v2.get("/api/student/lesson-progress/{lesson_id}")
+async def get_lesson_progress(
+    lesson_id: str,
+    current_user: dict = Depends(get_current_user)
+):
+    """Получить прогресс студента по уроку"""
+    try:
+        user_id = current_user.get('user_id', current_user.get('id', 'unknown'))
+        
+        progress = await db.lesson_progress.find_one({
+            "user_id": user_id,
+            "lesson_id": lesson_id
+        })
+        
+        if not progress:
+            return {
+                "exercises_completed": 0,
+                "completion_percentage": 0,
+                "is_completed": False
+            }
+        
+        return {
+            "exercises_completed": progress.get("exercises_completed", 0),
+            "theory_completed": progress.get("theory_completed", False),
+            "challenge_completed": progress.get("challenge_completed", False),
+            "quiz_completed": progress.get("quiz_completed", False),
+            "completion_percentage": progress.get("completion_percentage", 0),
+            "is_completed": progress.get("is_completed", False),
+            "last_activity_at": progress.get("last_activity_at").isoformat() if progress.get("last_activity_at") else None
+        }
+        
+    except Exception as e:
+        logger.error(f"Error getting lesson progress: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Ошибка при получении прогресса: {str(e)}")
+
+
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(

@@ -36,6 +36,9 @@ const LearningSystemV2 = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [userLevel, setUserLevel] = useState(1);
+  const [exerciseResponses, setExerciseResponses] = useState({});
+  const [savingResponse, setSavingResponse] = useState({});
+  const [lessonProgress, setLessonProgress] = useState(null);
 
   const backendUrl = getBackendUrl();
 
@@ -68,6 +71,106 @@ const LearningSystemV2 = () => {
     }
   };
 
+  // Загрузка ответов на упражнения для урока
+  const loadExerciseResponses = async (lessonId) => {
+    try {
+      const lesson = lessons.find(l => l.id === lessonId) || currentLesson;
+      if (!lesson || !lesson.exercises) return;
+
+      const responses = {};
+      for (const exercise of lesson.exercises) {
+        try {
+          const response = await fetch(
+            `${backendUrl}/api/student/exercise-response/${lessonId}/${exercise.id}`,
+            {
+              headers: {
+                'Authorization': `Bearer ${localStorage.getItem('token')}`,
+                'Content-Type': 'application/json'
+              }
+            }
+          );
+
+          if (response.ok) {
+            const data = await response.json();
+            responses[exercise.id] = data.response_text || '';
+          }
+        } catch (err) {
+          console.error(`Error loading response for exercise ${exercise.id}:`, err);
+        }
+      }
+      setExerciseResponses(responses);
+    } catch (error) {
+      console.error('Error loading exercise responses:', error);
+    }
+  };
+
+  // Загрузка прогресса урока
+  const loadLessonProgress = async (lessonId) => {
+    try {
+      const response = await fetch(
+        `${backendUrl}/api/student/lesson-progress/${lessonId}`,
+        {
+          headers: {
+            'Authorization': `Bearer ${localStorage.getItem('token')}`,
+            'Content-Type': 'application/json'
+          }
+        }
+      );
+
+      if (response.ok) {
+        const data = await response.json();
+        setLessonProgress(data);
+      }
+    } catch (error) {
+      console.error('Error loading lesson progress:', error);
+    }
+  };
+
+  // Сохранение ответа на упражнение
+  const saveExerciseResponse = async (lessonId, exerciseId, responseText) => {
+    try {
+      setSavingResponse(prev => ({ ...prev, [exerciseId]: true }));
+
+      const response = await fetch(
+        `${backendUrl}/api/student/exercise-response`,
+        {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${localStorage.getItem('token')}`,
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({
+            lesson_id: lessonId,
+            exercise_id: exerciseId,
+            response_text: responseText
+          })
+        }
+      );
+
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+
+      const data = await response.json();
+      
+      // Обновляем локальное состояние
+      setExerciseResponses(prev => ({
+        ...prev,
+        [exerciseId]: responseText
+      }));
+
+      // Обновляем прогресс урока
+      await loadLessonProgress(lessonId);
+
+      return data;
+    } catch (error) {
+      console.error('Error saving exercise response:', error);
+      throw error;
+    } finally {
+      setSavingResponse(prev => ({ ...prev, [exerciseId]: false }));
+    }
+  };
+
   const startLesson = async (lesson) => {
     try {
       const response = await fetch(`${backendUrl}/api/learning-v2/lessons/${lesson.id}`, {
@@ -84,6 +187,10 @@ const LearningSystemV2 = () => {
       const data = await response.json();
       setCurrentLesson(data.lesson);
       setCurrentSection('theory');
+      
+      // Загружаем ответы и прогресс для этого урока
+      await loadExerciseResponses(lesson.id);
+      await loadLessonProgress(lesson.id);
     } catch (error) {
       console.error('Error loading lesson:', error);
       setError('Ошибка загрузки урока');
@@ -436,6 +543,13 @@ const LearningSystemV2 = () => {
                           type="radio"
                           name={`exercise-${exercise.id}`}
                           value={option}
+                          checked={exerciseResponses[exercise.id] === option}
+                          onChange={(e) => {
+                            setExerciseResponses(prev => ({
+                              ...prev,
+                              [exercise.id]: e.target.value
+                            }));
+                          }}
                           className="mr-2"
                         />
                         {option}
@@ -447,12 +561,42 @@ const LearningSystemV2 = () => {
                     className="w-full p-3 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                     rows={4}
                     placeholder="Введите ваш ответ здесь..."
+                    value={exerciseResponses[exercise.id] || ''}
+                    onChange={(e) => {
+                      setExerciseResponses(prev => ({
+                        ...prev,
+                        [exercise.id]: e.target.value
+                      }));
+                    }}
                   />
                 )}
 
-                <Button className="mt-3" size="sm">
-                  Отправить ответ
+                <Button 
+                  className="mt-3" 
+                  size="sm"
+                  onClick={() => saveExerciseResponse(currentLesson.id, exercise.id, exerciseResponses[exercise.id] || '')}
+                  disabled={savingResponse[exercise.id]}
+                >
+                  {savingResponse[exercise.id] ? (
+                    <>
+                      <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
+                      Сохранение...
+                    </>
+                  ) : exerciseResponses[exercise.id] ? (
+                    <>
+                      <CheckCircle className="w-4 h-4 mr-2" />
+                      Обновить ответ
+                    </>
+                  ) : (
+                    'Отправить ответ'
+                  )}
                 </Button>
+                
+                {exerciseResponses[exercise.id] && (
+                  <p className="text-xs text-green-600 mt-2">
+                    ✓ Ответ сохранен
+                  </p>
+                )}
               </div>
 
               <div className="mt-4 p-3 bg-blue-50 rounded-lg border border-blue-200">
