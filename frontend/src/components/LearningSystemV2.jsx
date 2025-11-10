@@ -76,36 +76,36 @@ const LearningSystemV2 = () => {
   };
 
   // Загрузка ответов на упражнения для урока
+  // Загрузка ответов на упражнения (как в челлендже - одним запросом)
   const loadExerciseResponses = async (lessonId) => {
     try {
-      const lesson = lessons.find(l => l.id === lessonId) || currentLesson;
-      if (!lesson || !lesson.exercises) return;
-
-      const responses = {};
-      const responsesData = {};
-      for (const exercise of lesson.exercises) {
-        try {
-          const response = await fetch(
-            `${backendUrl}/api/student/exercise-response/${lessonId}/${exercise.id}`,
-            {
-              headers: {
-                'Authorization': `Bearer ${localStorage.getItem('token')}`,
-                'Content-Type': 'application/json'
-              }
-            }
-          );
-
-          if (response.ok) {
-            const data = await response.json();
-            responses[exercise.id] = data.response_text || '';
-            responsesData[exercise.id] = data; // Сохраняем полные данные
+      const response = await fetch(
+        `${backendUrl}/api/student/exercise-responses/${lessonId}`,
+        {
+          headers: {
+            'Authorization': `Bearer ${localStorage.getItem('token')}`,
+            'Content-Type': 'application/json'
           }
-        } catch (err) {
-          console.error(`Error loading response for exercise ${exercise.id}:`, err);
         }
+      );
+
+      if (response.ok) {
+        const data = await response.json();
+        const exerciseResponsesObj = data.exercise_responses || {};
+        
+        // Формируем объекты для состояния
+        const responses = {};
+        const responsesData = {};
+        
+        Object.keys(exerciseResponsesObj).forEach(exerciseId => {
+          const responseData = exerciseResponsesObj[exerciseId];
+          responses[exerciseId] = responseData.response_text || '';
+          responsesData[exerciseId] = responseData;
+        });
+        
+        setExerciseResponses(responses);
+        setExerciseResponsesData(responsesData);
       }
-      setExerciseResponses(responses);
-      setExerciseResponsesData(responsesData);
     } catch (error) {
       console.error('Error loading exercise responses:', error);
     }
@@ -133,7 +133,7 @@ const LearningSystemV2 = () => {
     }
   };
 
-  // Сохранение ответа на упражнение
+  // Сохранение ответа на упражнение (как в челлендже)
   const saveExerciseResponse = async (lessonId, exerciseId, responseText) => {
     try {
       setSavingResponse(prev => ({ ...prev, [exerciseId]: true }));
@@ -166,7 +166,8 @@ const LearningSystemV2 = () => {
         [exerciseId]: responseText
       }));
 
-      // Обновляем прогресс урока
+      // Перезагружаем ответы и прогресс (как в челлендже)
+      await loadExerciseResponses(lessonId);
       await loadLessonProgress(lessonId);
 
       return data;

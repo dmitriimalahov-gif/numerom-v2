@@ -586,13 +586,53 @@ async def submit_exercise_response(
         raise HTTPException(status_code=500, detail=f"Ошибка при сохранении ответа: {str(e)}")
 
 
+@app_v2.get("/api/student/exercise-responses/{lesson_id}")
+async def get_all_exercise_responses(
+    lesson_id: str,
+    current_user: dict = Depends(get_current_user)
+):
+    """Получить все ответы студента на упражнения урока"""
+    try:
+        user_id = current_user.get('user_id', current_user.get('id', 'unknown'))
+        
+        # Получаем все ответы студента для данного урока
+        responses_cursor = db.exercise_responses.find({
+            "user_id": user_id,
+            "lesson_id": lesson_id
+        })
+        
+        responses = await responses_cursor.to_list(length=None)
+        
+        # Формируем словарь ответов по exercise_id
+        exercise_responses = {}
+        for response in responses:
+            exercise_id = response.get("exercise_id")
+            exercise_responses[exercise_id] = {
+                "response_text": response.get("response_text", ""),
+                "submitted_at": response.get("submitted_at").isoformat() if response.get("submitted_at") else None,
+                "reviewed": response.get("reviewed", False),
+                "admin_comment": response.get("admin_comment"),
+                "reviewed_at": response.get("reviewed_at").isoformat() if response.get("reviewed_at") else None,
+                "reviewed_by": response.get("reviewed_by")
+            }
+        
+        return {
+            "lesson_id": lesson_id,
+            "exercise_responses": exercise_responses
+        }
+        
+    except Exception as e:
+        logger.error(f"Error getting exercise responses: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Ошибка при получении ответов: {str(e)}")
+
+
 @app_v2.get("/api/student/exercise-response/{lesson_id}/{exercise_id}")
 async def get_exercise_response(
     lesson_id: str,
     exercise_id: str,
     current_user: dict = Depends(get_current_user)
 ):
-    """Получить ответ студента на упражнение"""
+    """Получить ответ студента на упражнение (старый endpoint для совместимости)"""
     try:
         user_id = current_user.get('user_id', current_user.get('id', 'unknown'))
         
