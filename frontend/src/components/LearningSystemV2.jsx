@@ -52,6 +52,10 @@ const LearningSystemV2 = () => {
   const [quizAnswers, setQuizAnswers] = useState({});
   const [quizCompleted, setQuizCompleted] = useState(false);
   const [quizScore, setQuizScore] = useState(0);
+  
+  // Состояния для отслеживания времени активности
+  const [timeActivity, setTimeActivity] = useState({ total_minutes: 0, total_points: 0 });
+  const [activityStartTime, setActivityStartTime] = useState(null);
 
   const backendUrl = getBackendUrl();
 
@@ -219,6 +223,9 @@ const LearningSystemV2 = () => {
       if (data.lesson.quiz) {
         await loadQuizHistory(lesson.id);
       }
+      
+      // Загружаем статистику времени активности
+      await loadTimeActivity(lesson.id);
     } catch (error) {
       console.error('Error loading lesson:', error);
       setError('Ошибка загрузки урока');
@@ -294,11 +301,102 @@ const LearningSystemV2 = () => {
         const data = await response.json();
         console.log('Quiz history loaded:', data);
         setQuizHistory(data.attempts || []);
+        
+        // Восстанавливаем состояние последней попытки теста
+        if (data.attempts && data.attempts.length > 0) {
+          const lastAttempt = data.attempts[0]; // Первая попытка - самая последняя (сортировка по убыванию)
+          setQuizCompleted(true);
+          setQuizScore(lastAttempt.score);
+          console.log('Quiz state restored:', { score: lastAttempt.score, passed: lastAttempt.passed });
+        }
       }
     } catch (error) {
       console.error('Error loading quiz history:', error);
     }
   };
+
+  // Загрузка статистики времени активности
+  const loadTimeActivity = async (lessonId) => {
+    try {
+      const response = await fetch(
+        `${backendUrl}/api/student/time-activity/${lessonId}`,
+        {
+          headers: {
+            'Authorization': `Bearer ${localStorage.getItem('token')}`,
+            'Content-Type': 'application/json'
+          }
+        }
+      );
+
+      if (response.ok) {
+        const data = await response.json();
+        setTimeActivity({
+          total_minutes: data.total_minutes || 0,
+          total_points: data.total_points || 0
+        });
+        console.log('Time activity loaded:', data);
+      }
+    } catch (error) {
+      console.error('Error loading time activity:', error);
+    }
+  };
+
+  // Отправка времени активности на сервер
+  const sendTimeActivity = async (lessonId, minutesSpent) => {
+    try {
+      const response = await fetch(
+        `${backendUrl}/api/student/time-activity`,
+        {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${localStorage.getItem('token')}`,
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({
+            lesson_id: lessonId,
+            minutes_spent: minutesSpent
+          })
+        }
+      );
+
+      if (response.ok) {
+        const data = await response.json();
+        setTimeActivity({
+          total_minutes: data.total_minutes,
+          total_points: data.total_points
+        });
+        console.log('Time activity updated:', data);
+      }
+    } catch (error) {
+      console.error('Error sending time activity:', error);
+    }
+  };
+
+  // Таймер для отслеживания времени активности (каждую минуту отправляем данные)
+  useEffect(() => {
+    if (!currentLesson) return;
+
+    // Запускаем таймер при открытии урока
+    setActivityStartTime(Date.now());
+
+    const interval = setInterval(() => {
+      // Каждую минуту отправляем 1 минуту активности
+      sendTimeActivity(currentLesson.id, 1);
+    }, 60000); // 60000 мс = 1 минута
+
+    // Очистка при размонтировании или смене урока
+    return () => {
+      clearInterval(interval);
+      
+      // При выходе из урока отправляем оставшееся время
+      if (activityStartTime) {
+        const elapsedMinutes = Math.floor((Date.now() - activityStartTime) / 60000);
+        if (elapsedMinutes > 0) {
+          sendTimeActivity(currentLesson.id, elapsedMinutes);
+        }
+      }
+    };
+  }, [currentLesson]);
 
   // Сохранение заметки челленджа
   const saveChallengeNote = async (lessonId, challengeId, day, note, completed = false) => {
@@ -1496,62 +1594,75 @@ const LearningSystemV2 = () => {
           </div>
 
           {/* Общие заработанные баллы */}
-          {(challengeHistory.length > 0 || quizHistory.length > 0) && (
-            <div className="bg-gradient-to-r from-yellow-50 via-amber-50 to-orange-50 rounded-lg p-6 border-2 border-yellow-300 shadow-lg">
-              <h4 className="font-semibold text-yellow-900 text-lg mb-4 flex items-center gap-2">
-                <Trophy className="w-6 h-6 text-yellow-600" />
-                Заработанные баллы
-              </h4>
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                {/* Баллы за челленджи */}
-                {challengeHistory.length > 0 && (
-                  <div className="bg-white rounded-lg p-4 border border-yellow-200">
-                    <div className="flex items-center gap-2 mb-2">
-                      <Calendar className="w-5 h-5 text-orange-600" />
-                      <p className="text-sm font-medium text-gray-700">Челленджи</p>
-            </div>
-                    <p className="text-3xl font-bold text-orange-600">
-                      {challengeHistory.reduce((sum, a) => sum + (a.points_earned || 0), 0)} 🌟
-                    </p>
-                    <p className="text-xs text-gray-600 mt-1">
-                      {challengeHistory.filter(a => a.is_completed).length} завершено
-                    </p>
-                  </div>
-                )}
-                
-                {/* Баллы за тесты */}
-                {quizHistory.length > 0 && (
-                  <div className="bg-white rounded-lg p-4 border border-purple-200">
-                    <div className="flex items-center gap-2 mb-2">
-                      <Target className="w-5 h-5 text-purple-600" />
-                      <p className="text-sm font-medium text-gray-700">Тесты</p>
-                    </div>
-                    <p className="text-3xl font-bold text-purple-600">
-                      {quizHistory.reduce((sum, a) => sum + (a.points_earned || 0), 0)} 🎯
-                    </p>
-                    <p className="text-xs text-gray-600 mt-1">
-                      {quizHistory.filter(a => a.passed).length} пройдено
-                    </p>
-                  </div>
-                )}
-                
-                {/* Общая сумма */}
-                <div className="bg-gradient-to-br from-yellow-400 to-orange-400 rounded-lg p-4 border-2 border-yellow-500 text-white">
+          <div className="bg-gradient-to-r from-yellow-50 via-amber-50 to-orange-50 rounded-lg p-6 border-2 border-yellow-300 shadow-lg">
+            <h4 className="font-semibold text-yellow-900 text-lg mb-4 flex items-center gap-2">
+              <Trophy className="w-6 h-6 text-yellow-600" />
+              Заработанные баллы
+            </h4>
+            <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+              {/* Баллы за челленджи */}
+              {challengeHistory.length > 0 && (
+                <div className="bg-white rounded-lg p-4 border border-yellow-200">
                   <div className="flex items-center gap-2 mb-2">
-                    <Trophy className="w-5 h-5" />
-                    <p className="text-sm font-medium">Всего</p>
-                  </div>
-                  <p className="text-4xl font-bold">
-                    {(challengeHistory.reduce((sum, a) => sum + (a.points_earned || 0), 0) +
-                      quizHistory.reduce((sum, a) => sum + (a.points_earned || 0), 0))} ⭐
+                    <Calendar className="w-5 h-5 text-orange-600" />
+                    <p className="text-sm font-medium text-gray-700">Челленджи</p>
+          </div>
+                  <p className="text-3xl font-bold text-orange-600">
+                    {challengeHistory.reduce((sum, a) => sum + (a.points_earned || 0), 0)} 🌟
                   </p>
-                  <p className="text-xs mt-1 opacity-90">
-                    Общий результат
+                  <p className="text-xs text-gray-600 mt-1">
+                    {challengeHistory.filter(a => a.is_completed).length} завершено
                   </p>
                 </div>
+              )}
+              
+              {/* Баллы за тесты */}
+              {quizHistory.length > 0 && (
+                <div className="bg-white rounded-lg p-4 border border-purple-200">
+                  <div className="flex items-center gap-2 mb-2">
+                    <Target className="w-5 h-5 text-purple-600" />
+                    <p className="text-sm font-medium text-gray-700">Тесты</p>
+                  </div>
+                  <p className="text-3xl font-bold text-purple-600">
+                    {quizHistory.reduce((sum, a) => sum + (a.points_earned || 0), 0)} 🎯
+                  </p>
+                  <p className="text-xs text-gray-600 mt-1">
+                    {quizHistory.filter(a => a.passed).length} пройдено
+                  </p>
+                </div>
+              )}
+              
+              {/* Баллы за время активности */}
+              <div className="bg-white rounded-lg p-4 border border-blue-200">
+                <div className="flex items-center gap-2 mb-2">
+                  <Clock className="w-5 h-5 text-blue-600" />
+                  <p className="text-sm font-medium text-gray-700">Активность</p>
+                </div>
+                <p className="text-3xl font-bold text-blue-600">
+                  {timeActivity.total_points} ⏱️
+                </p>
+                <p className="text-xs text-gray-600 mt-1">
+                  {timeActivity.total_minutes} минут
+                </p>
+              </div>
+              
+              {/* Общая сумма */}
+              <div className="bg-gradient-to-br from-yellow-400 to-orange-400 rounded-lg p-4 border-2 border-yellow-500 text-white">
+                <div className="flex items-center gap-2 mb-2">
+                  <Trophy className="w-5 h-5" />
+                  <p className="text-sm font-medium">Всего</p>
+                </div>
+                <p className="text-4xl font-bold">
+                  {(challengeHistory.reduce((sum, a) => sum + (a.points_earned || 0), 0) +
+                    quizHistory.reduce((sum, a) => sum + (a.points_earned || 0), 0) +
+                    timeActivity.total_points)} ⭐
+                </p>
+                <p className="text-xs mt-1 opacity-90">
+                  Общий результат
+                </p>
               </div>
             </div>
-          )}
+          </div>
 
           {/* Статистика по разделам */}
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
@@ -2003,6 +2114,42 @@ const LearningSystemV2 = () => {
               >
                 <Home className="w-4 h-4 mr-1" />
                 К списку уроков
+              </Button>
+              
+              <Button
+                variant="destructive"
+                onClick={async () => {
+                  if (window.confirm('Вы уверены, что хотите пройти урок заново? Это удалит ваши ответы на упражнения и прогресс урока. История тестов и челленджей сохранится.')) {
+                    try {
+                      const response = await fetch(
+                        `${backendUrl}/api/student/reset-lesson/${currentLesson.id}`,
+                        {
+                          method: 'DELETE',
+                          headers: {
+                            'Authorization': `Bearer ${localStorage.getItem('token')}`,
+                            'Content-Type': 'application/json'
+                          }
+                        }
+                      );
+                      
+                      if (response.ok) {
+                        // Перезагружаем урок
+                        await startLesson(currentLesson);
+                        setCurrentSection('theory');
+                        alert('Прогресс урока сброшен! Вы можете начать заново.');
+                      } else {
+                        alert('Ошибка при сбросе прогресса');
+                      }
+                    } catch (error) {
+                      console.error('Error resetting lesson:', error);
+                      alert('Ошибка при сбросе прогресса');
+                    }
+                  }
+                }}
+                className="flex items-center gap-2"
+              >
+                <PlayCircle className="w-4 h-4 mr-1" />
+                Пройти заново
               </Button>
 
               <Button

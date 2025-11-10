@@ -66,6 +66,18 @@ db.challenge_progress.createIndex({ "completed_at": -1 });
 db.challenge_progress.createIndex({ "attempt_number": 1 });
 db.challenge_progress.createIndex({ "points_earned": -1 });
 
+// ===== КОЛЛЕКЦИЯ: time_activity =====
+// Хранит время активности студентов и начисленные баллы
+print("Creating indexes for time_activity...");
+db.time_activity.createIndex({ "id": 1 }, { unique: true });
+db.time_activity.createIndex({ "user_id": 1, "lesson_id": 1 }, { unique: true });
+db.time_activity.createIndex({ "user_id": 1 });
+db.time_activity.createIndex({ "lesson_id": 1 });
+db.time_activity.createIndex({ "total_minutes": -1 });
+db.time_activity.createIndex({ "total_points": -1 });
+db.time_activity.createIndex({ "started_at": -1 });
+db.time_activity.createIndex({ "last_activity_at": -1 });
+
 // ===== КОЛЛЕКЦИЯ: student_analytics =====
 // Хранит общую аналитику по студентам
 print("Creating indexes for student_analytics...");
@@ -95,6 +107,7 @@ print("  • exercise_responses - Ответы на упражнения");
 print("  • lesson_progress - Прогресс по урокам");
 print("  • quiz_attempts - Попытки прохождения тестов");
 print("  • challenge_progress - Прогресс по челленджам");
+print("  • time_activity - Время активности и баллы");
 print("  • student_analytics - Общая аналитика студентов");
 print("  • users - Пользователи системы");
 print("========================================");

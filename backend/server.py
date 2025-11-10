@@ -76,6 +76,13 @@ class QuizAttemptRequest(BaseModel):
     passed: bool
     answers: dict  # {question_id: answer}
 
+
+class TimeActivityRequest(BaseModel):
+    """Модель для отслеживания времени активности студента"""
+    lesson_id: str
+    minutes_spent: int  # Количество минут, проведенных на уроке
+
+
 # Инициализация подключения к MongoDB
 @app_v2.on_event("startup")
 async def startup_event():
@@ -778,10 +785,155 @@ async def get_lesson_progress(
             "is_completed": progress.get("is_completed", False),
             "last_activity_at": progress.get("last_activity_at").isoformat() if progress.get("last_activity_at") else None
         }
-        
+
     except Exception as e:
         logger.error(f"Error getting lesson progress: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Ошибка при получении прогресса: {str(e)}")
+
+
+@app_v2.post("/api/student/time-activity")
+async def track_time_activity(
+    request: TimeActivityRequest,
+    current_user: dict = Depends(get_current_user)
+):
+    """Отслеживание времени активности студента и начисление баллов (1 балл за минуту)"""
+    try:
+        user_id = current_user.get('user_id', current_user.get('id', 'unknown'))
+        lesson_id = request.lesson_id
+        minutes_spent = request.minutes_spent
+        
+        # Начисляем баллы: 1 балл за минуту
+        points_earned = minutes_spent
+        
+        # Проверяем, есть ли уже запись для этого урока
+        existing_activity = await db.time_activity.find_one({
+            "user_id": user_id,
+            "lesson_id": lesson_id
+        })
+        
+        if existing_activity:
+            # Обновляем существующую запись
+            new_total_minutes = existing_activity.get("total_minutes", 0) + minutes_spent
+            new_total_points = existing_activity.get("total_points", 0) + points_earned
+            
+            await db.time_activity.update_one(
+                {
+                    "user_id": user_id,
+                    "lesson_id": lesson_id
+                },
+                {
+                    "$set": {
+                        "total_minutes": new_total_minutes,
+                        "total_points": new_total_points,
+                        "last_activity_at": datetime.utcnow()
+                    }
+                }
+            )
+            
+            logger.info(f"Time activity updated: user={user_id}, lesson={lesson_id}, minutes={new_total_minutes}, points={new_total_points}")
+            
+            return {
+                "message": "Время активности обновлено",
+                "total_minutes": new_total_minutes,
+                "total_points": new_total_points,
+                "points_earned": points_earned
+            }
+        else:
+            # Создаем новую запись
+            activity_data = {
+                "id": str(uuid.uuid4()),
+                "user_id": user_id,
+                "lesson_id": lesson_id,
+                "total_minutes": minutes_spent,
+                "total_points": points_earned,
+                "started_at": datetime.utcnow(),
+                "last_activity_at": datetime.utcnow()
+            }
+            
+            await db.time_activity.insert_one(activity_data)
+            
+            logger.info(f"Time activity created: user={user_id}, lesson={lesson_id}, minutes={minutes_spent}, points={points_earned}")
+            
+            return {
+                "message": "Время активности сохранено",
+                "total_minutes": minutes_spent,
+                "total_points": points_earned,
+                "points_earned": points_earned
+            }
+        
+    except Exception as e:
+        logger.error(f"Error tracking time activity: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Ошибка при отслеживании времени: {str(e)}")
+
+
+@app_v2.get("/api/student/time-activity/{lesson_id}")
+async def get_time_activity(
+    lesson_id: str,
+    current_user: dict = Depends(get_current_user)
+):
+    """Получить статистику времени активности студента для урока"""
+    try:
+        user_id = current_user.get('user_id', current_user.get('id', 'unknown'))
+        
+        activity = await db.time_activity.find_one({
+            "user_id": user_id,
+            "lesson_id": lesson_id
+        })
+        
+        if not activity:
+            return {
+                "total_minutes": 0,
+                "total_points": 0,
+                "started_at": None,
+                "last_activity_at": None
+            }
+        
+        return {
+            "total_minutes": activity.get("total_minutes", 0),
+            "total_points": activity.get("total_points", 0),
+            "started_at": activity.get("started_at").isoformat() if activity.get("started_at") else None,
+            "last_activity_at": activity.get("last_activity_at").isoformat() if activity.get("last_activity_at") else None
+        }
+        
+    except Exception as e:
+        logger.error(f"Error getting time activity: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Ошибка при получении статистики времени: {str(e)}")
+
+
+@app_v2.delete("/api/student/reset-lesson/{lesson_id}")
+async def reset_lesson_progress(
+    lesson_id: str,
+    current_user: dict = Depends(get_current_user)
+):
+    """Сброс всего прогресса студента по уроку (для повторного прохождения)"""
+    try:
+        user_id = current_user.get('user_id', current_user.get('id', 'unknown'))
+        
+        # Удаляем все ответы на упражнения
+        await db.exercise_responses.delete_many({
+            "user_id": user_id,
+            "lesson_id": lesson_id
+        })
+        
+        # Удаляем прогресс урока
+        await db.lesson_progress.delete_many({
+            "user_id": user_id,
+            "lesson_id": lesson_id
+        })
+        
+        # НЕ удаляем попытки тестов и челленджей - они остаются в истории
+        # НЕ удаляем время активности - оно продолжает накапливаться
+        
+        logger.info(f"Lesson progress reset: user={user_id}, lesson={lesson_id}")
+        
+        return {
+            "message": "Прогресс урока сброшен",
+            "lesson_id": lesson_id
+        }
+        
+    except Exception as e:
+        logger.error(f"Error resetting lesson progress: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Ошибка при сбросе прогресса: {str(e)}")
 
 
 # ===== ENDPOINTS ДЛЯ ТЕСТОВ (СТУДЕНТЫ) =====
