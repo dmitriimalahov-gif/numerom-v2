@@ -391,9 +391,15 @@ const LearningSystemV2 = () => {
       const data = await response.json();
       console.log('Quiz result saved:', data);
 
-      // Обновляем состояние
+      // Обновляем состояние с баллами
       setQuizScore(score);
       setQuizCompleted(true);
+      
+      // Сохраняем заработанные баллы
+      if (data.points_earned) {
+        // Можно сохранить в состояние для отображения
+        console.log(`Earned ${data.points_earned} points for quiz!`);
+      }
 
       // Обновляем прогресс урока
       await loadLessonProgress(currentLesson.id);

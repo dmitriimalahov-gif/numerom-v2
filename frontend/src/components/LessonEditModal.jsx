@@ -1643,43 +1643,78 @@ const LessonEditModal = ({
                     </div>
                   </div>
 
-                  {/* Статистика по баллам челленджа */}
-                  {analyticsData.statistics.total_challenge_attempts > 0 && (
-                    <div className="bg-gradient-to-r from-yellow-50 to-amber-50 p-5 rounded-lg border border-yellow-200">
-                      <h3 className="text-base font-semibold mb-3 flex items-center gap-2">
-                        <BarChart3 className="w-4 h-4 text-yellow-700" />
-                        Статистика по баллам челленджа
-                      </h3>
-                      <div className="grid grid-cols-3 gap-3">
-                        <div className="bg-white p-3 rounded-lg shadow-sm">
-                          <p className="text-xs text-gray-600 mb-1">Всего баллов</p>
-                          <p className="text-2xl font-bold text-yellow-600">
-                            {analyticsData.statistics.total_points_earned || 0} 🌟
-                          </p>
-                        </div>
-                        <div className="bg-white p-3 rounded-lg shadow-sm">
-                          <p className="text-xs text-gray-600 mb-1">Средний балл</p>
-                          <p className="text-2xl font-bold text-amber-600">
-                            {analyticsData.statistics.avg_points_per_attempt || 0}
-                          </p>
-                        </div>
-                        <div className="bg-white p-3 rounded-lg shadow-sm">
-                          <p className="text-xs text-gray-600 mb-1">Участников</p>
-                          <p className="text-2xl font-bold text-orange-600">
-                            {analyticsData.statistics.unique_challenge_users || 0}
-                          </p>
+                  {/* Статистика по баллам */}
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                    {/* Баллы за челленджи */}
+                    {analyticsData.statistics.total_challenge_attempts > 0 && (
+                      <div className="bg-gradient-to-r from-yellow-50 to-amber-50 p-4 rounded-lg border border-yellow-200">
+                        <h3 className="text-sm font-semibold mb-2 flex items-center gap-2">
+                          <Calendar className="w-4 h-4 text-yellow-700" />
+                          Баллы за челленджи
+                        </h3>
+                        <div className="space-y-2">
+                          <div className="flex justify-between items-center">
+                            <span className="text-xs text-gray-600">Всего баллов:</span>
+                            <span className="text-lg font-bold text-yellow-600">
+                              {analyticsData.statistics.total_points_earned || 0} 🌟
+                            </span>
+                          </div>
+                          <div className="flex justify-between items-center">
+                            <span className="text-xs text-gray-600">Средний:</span>
+                            <span className="text-sm font-semibold text-amber-600">
+                              {analyticsData.statistics.avg_points_per_attempt || 0}
+                            </span>
+                          </div>
+                          <div className="flex justify-between items-center">
+                            <span className="text-xs text-gray-600">Участников:</span>
+                            <span className="text-sm font-semibold text-orange-600">
+                              {analyticsData.statistics.unique_challenge_users || 0}
+                            </span>
+                          </div>
                         </div>
                       </div>
-                    </div>
-                  )}
+                    )}
 
-                  {/* Топ студентов по баллам */}
-                  {analyticsData.challenge_leaderboard && analyticsData.challenge_leaderboard.length > 0 && (
-                    <div className="bg-white p-5 rounded-lg border border-gray-200">
-                      <h3 className="text-base font-semibold mb-3 flex items-center gap-2">
-                        <Users className="w-4 h-4 text-indigo-600" />
-                        Топ студентов по баллам челленджа
-                      </h3>
+                    {/* Баллы за тесты */}
+                    {analyticsData.statistics.total_quiz_attempts > 0 && (
+                      <div className="bg-gradient-to-r from-purple-50 to-indigo-50 p-4 rounded-lg border border-purple-200">
+                        <h3 className="text-sm font-semibold mb-2 flex items-center gap-2">
+                          <BarChart3 className="w-4 h-4 text-purple-700" />
+                          Баллы за тесты
+                        </h3>
+                        <div className="space-y-2">
+                          <div className="flex justify-between items-center">
+                            <span className="text-xs text-gray-600">Всего баллов:</span>
+                            <span className="text-lg font-bold text-purple-600">
+                              {analyticsData.statistics.total_quiz_points || 0} 🎯
+                            </span>
+                          </div>
+                          <div className="flex justify-between items-center">
+                            <span className="text-xs text-gray-600">Средний:</span>
+                            <span className="text-sm font-semibold text-indigo-600">
+                              {analyticsData.statistics.avg_quiz_points || 0}
+                            </span>
+                          </div>
+                          <div className="flex justify-between items-center">
+                            <span className="text-xs text-gray-600">Пройдено:</span>
+                            <span className="text-sm font-semibold text-green-600">
+                              {analyticsData.statistics.passed_quizzes || 0} / {analyticsData.statistics.total_quiz_attempts}
+                            </span>
+                          </div>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Топ студентов по баллам - две колонки */}
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                    {/* Топ по челленджам */}
+                    {analyticsData.challenge_leaderboard && analyticsData.challenge_leaderboard.length > 0 && (
+                      <div className="bg-white p-4 rounded-lg border border-gray-200">
+                        <h3 className="text-sm font-semibold mb-3 flex items-center gap-2">
+                          <Calendar className="w-4 h-4 text-yellow-600" />
+                          Топ по челленджам
+                        </h3>
                       <div className="space-y-2">
                         {analyticsData.challenge_leaderboard.map((student, index) => (
                           <div 
@@ -1713,8 +1748,52 @@ const LessonEditModal = ({
                           </div>
                         ))}
                       </div>
-                    </div>
-                  )}
+                      </div>
+                    )}
+
+                    {/* Топ по тестам */}
+                    {analyticsData.quiz_leaderboard && analyticsData.quiz_leaderboard.length > 0 && (
+                      <div className="bg-white p-4 rounded-lg border border-gray-200">
+                        <h3 className="text-sm font-semibold mb-3 flex items-center gap-2">
+                          <BarChart3 className="w-4 h-4 text-purple-600" />
+                          Топ по тестам
+                        </h3>
+                        <div className="space-y-2">
+                          {analyticsData.quiz_leaderboard.map((student, index) => (
+                            <div 
+                              key={student.user_id}
+                              className={`flex items-center justify-between p-3 rounded-lg ${
+                                index === 0 ? 'bg-purple-50 border border-purple-200' :
+                                index === 1 ? 'bg-gray-50 border border-gray-200' :
+                                index === 2 ? 'bg-indigo-50 border border-indigo-200' :
+                                'bg-gray-50'
+                              }`}
+                            >
+                              <div className="flex items-center gap-3">
+                                <div className={`w-8 h-8 rounded-full flex items-center justify-center font-bold ${
+                                  index === 0 ? 'bg-purple-400 text-purple-900' :
+                                  index === 1 ? 'bg-gray-400 text-gray-900' :
+                                  index === 2 ? 'bg-indigo-400 text-indigo-900' :
+                                  'bg-gray-300 text-gray-700'
+                                }`}>
+                                  {index + 1}
+                                </div>
+                                <div>
+                                  <p className="font-medium text-sm">Студент {student.user_id.substring(0, 8)}</p>
+                                  <p className="text-xs text-gray-500">
+                                    {student.attempts} попыток • {student.passed} пройдено • {student.best_score}%
+                                  </p>
+                                </div>
+                              </div>
+                              <div className="text-right">
+                                <p className="text-xl font-bold text-purple-600">{student.total_points} 🎯</p>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </div>
 
                   {/* График прогресса по времени */}
                   {analyticsData.progress_timeline && analyticsData.progress_timeline.length > 0 && (

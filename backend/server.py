@@ -791,7 +791,7 @@ async def submit_quiz_attempt(
     request: QuizAttemptRequest,
     current_user: dict = Depends(get_current_user)
 ):
-    """Сохранить результат прохождения теста студентом"""
+    """Сохранить результат прохождения теста студентом с начислением баллов"""
     try:
         user_id = current_user.get('user_id', current_user.get('id', 'unknown'))
         lesson_id = request.lesson_id
@@ -800,7 +800,24 @@ async def submit_quiz_attempt(
         passed = request.passed
         answers = request.answers
         
-        # Создаем запись о попытке
+        # Получаем урок для определения параметров начисления баллов
+        lesson = await db.lessons_v2.find_one({"id": lesson_id})
+        quiz = lesson.get("quiz", {}) if lesson else {}
+        
+        # Параметры начисления баллов за тест
+        points_per_percent = quiz.get("points_per_percent", 1)  # 1 балл за каждый процент
+        bonus_points = quiz.get("bonus_points", 20)  # Бонус за прохождение теста
+        
+        # Подсчет баллов
+        points_earned = 0
+        if passed:
+            # Баллы = процент × множитель + бонус за прохождение
+            points_earned = (score * points_per_percent) + bonus_points
+        else:
+            # Даже за непройденный тест начисляем баллы пропорционально проценту
+            points_earned = score * points_per_percent
+        
+        # Создаем запись о попытке с баллами
         attempt_data = {
             "id": str(uuid.uuid4()),
             "user_id": user_id,
@@ -809,6 +826,7 @@ async def submit_quiz_attempt(
             "score": score,
             "passed": passed,
             "answers": answers,
+            "points_earned": points_earned,
             "attempted_at": datetime.utcnow()
         }
         
@@ -833,13 +851,14 @@ async def submit_quiz_attempt(
         # Пересчитываем общий прогресс
         await update_lesson_progress(user_id, lesson_id)
         
-        logger.info(f"Quiz attempt saved: user={user_id}, lesson={lesson_id}, score={score}%")
+        logger.info(f"Quiz attempt saved: user={user_id}, lesson={lesson_id}, score={score}%, points={points_earned}")
         
         return {
             "message": "Результат теста сохранен",
             "attempt_id": attempt_data["id"],
             "score": score,
-            "passed": passed
+            "passed": passed,
+            "points_earned": points_earned
         }
         
     except Exception as e:
@@ -1251,6 +1270,23 @@ async def get_lesson_analytics(
         passed_quizzes = len([q for q in quiz_attempts if q.get("passed")])
         avg_quiz_score = sum([q.get("score", 0) for q in quiz_attempts]) / len(quiz_attempts) if quiz_attempts else 0
         
+        # Баллы за тесты
+        total_quiz_points = sum([q.get("points_earned", 0) for q in quiz_attempts])
+        avg_quiz_points = total_quiz_points / total_quiz_attempts if total_quiz_attempts > 0 else 0
+        
+        # Топ студентов по баллам за тесты
+        user_quiz_points = {}
+        for q in quiz_attempts:
+            user_id = q.get("user_id")
+            points = q.get("points_earned", 0)
+            if user_id not in user_quiz_points:
+                user_quiz_points[user_id] = {"total_points": 0, "attempts": 0, "passed": 0, "best_score": 0}
+            user_quiz_points[user_id]["total_points"] += points
+            user_quiz_points[user_id]["attempts"] += 1
+            if q.get("passed"):
+                user_quiz_points[user_id]["passed"] += 1
+            user_quiz_points[user_id]["best_score"] = max(user_quiz_points[user_id]["best_score"], q.get("score", 0))
+        
         # Расширенная статистика по челленджам
         unique_challenge_users = len(set([c.get("user_id") for c in challenge_progress_list]))
         total_challenge_attempts = len(challenge_progress_list)
@@ -1297,6 +1333,8 @@ async def get_lesson_analytics(
                 "total_quiz_attempts": total_quiz_attempts,
                 "passed_quizzes": passed_quizzes,
                 "avg_quiz_score": round(avg_quiz_score, 2),
+                "total_quiz_points": total_quiz_points,
+                "avg_quiz_points": round(avg_quiz_points, 2),
                 "unique_challenge_users": unique_challenge_users,
                 "total_challenge_attempts": total_challenge_attempts,
                 "completed_challenges": completed_challenges,
@@ -1304,11 +1342,16 @@ async def get_lesson_analytics(
                 "total_points_earned": total_points_earned,
                 "avg_points_per_attempt": round(avg_points_per_attempt, 2)
             },
+            "quiz_leaderboard": sorted(
+                [{"user_id": uid, **data} for uid, data in user_quiz_points.items()],
+                key=lambda x: x["total_points"],
+                reverse=True
+            )[:10],  # Топ 10 по тестам
             "challenge_leaderboard": sorted(
                 [{"user_id": uid, **data} for uid, data in user_points.items()],
                 key=lambda x: x["total_points"],
                 reverse=True
-            )[:10],  # Топ 10
+            )[:10],  # Топ 10 по челленджам
             "progress_timeline": sorted(progress_by_date.items()),
             "students_data": [
                 {
