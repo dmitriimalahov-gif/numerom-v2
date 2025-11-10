@@ -1160,10 +1160,28 @@ const LessonEditModal = ({
                   {/* Ежедневные задания */}
                   <div className="flex justify-between items-center">
                     <h3 className="text-lg font-semibold">Ежедневные задания ({editedLesson.challenge.daily_tasks?.length || 0})</h3>
-                    <Button onClick={addChallengeDay} size="sm" className="bg-purple-600">
-                      <Plus className="w-4 h-4 mr-1" />
-                      Добавить день
-                    </Button>
+                    <div className="flex gap-2">
+                      <input
+                        type="file"
+                        id="upload-challenge-existing"
+                        accept=".txt,.md"
+                        onChange={handleUploadChallenge}
+                        className="hidden"
+                      />
+                      <Button 
+                        onClick={() => document.getElementById('upload-challenge-existing').click()} 
+                        size="sm" 
+                        variant="outline"
+                        className="border-purple-600 text-purple-600 hover:bg-purple-50"
+                      >
+                        <Upload className="w-4 h-4 mr-1" />
+                        Загрузить из файла
+                      </Button>
+                      <Button onClick={addChallengeDay} size="sm" className="bg-purple-600">
+                        <Plus className="w-4 h-4 mr-1" />
+                        Добавить день
+                      </Button>
+                    </div>
                   </div>
 
                   {editedLesson.challenge.daily_tasks?.map((day, dayIndex) => (
@@ -1322,10 +1340,28 @@ const LessonEditModal = ({
                   {/* Вопросы */}
                   <div className="flex justify-between items-center">
                     <h3 className="text-lg font-semibold">Вопросы ({editedLesson.quiz.questions?.length || 0})</h3>
-                    <Button onClick={addQuestion} size="sm" className="bg-red-600">
-                      <Plus className="w-4 h-4 mr-1" />
-                      Добавить вопрос
-                    </Button>
+                    <div className="flex gap-2">
+                      <input
+                        type="file"
+                        id="upload-quiz-existing"
+                        accept=".txt,.md"
+                        onChange={handleUploadQuiz}
+                        className="hidden"
+                      />
+                      <Button 
+                        onClick={() => document.getElementById('upload-quiz-existing').click()} 
+                        size="sm" 
+                        variant="outline"
+                        className="border-red-600 text-red-600 hover:bg-red-50"
+                      >
+                        <Upload className="w-4 h-4 mr-1" />
+                        Загрузить из файла
+                      </Button>
+                      <Button onClick={addQuestion} size="sm" className="bg-red-600">
+                        <Plus className="w-4 h-4 mr-1" />
+                        Добавить вопрос
+                      </Button>
+                    </div>
                   </div>
 
                   {editedLesson.quiz.questions?.map((question, qIndex) => (
