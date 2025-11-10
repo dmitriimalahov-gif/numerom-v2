@@ -322,24 +322,72 @@ const LearningSystemV2 = () => {
     }
   };
 
-  const submitQuiz = () => {
-    // Подсчет правильных ответов
-    let correctCount = 0;
-    const questions = currentLesson.quiz.questions;
-    
-    questions.forEach(question => {
-      const userAnswer = quizAnswers[question.id];
-      if (userAnswer === question.correct_answer) {
-        correctCount++;
+  const submitQuiz = async () => {
+    try {
+      // Подсчет правильных ответов
+      let correctCount = 0;
+      const questions = currentLesson.quiz.questions;
+      
+      questions.forEach(question => {
+        const userAnswer = quizAnswers[question.id];
+        if (userAnswer === question.correct_answer) {
+          correctCount++;
+        }
+      });
+
+      const score = Math.round((correctCount / questions.length) * 100);
+      const passingScore = currentLesson.quiz.passing_score || 70;
+      const passed = score >= passingScore;
+
+      // Сохраняем результат в БД
+      const response = await fetch(
+        `${backendUrl}/api/student/quiz-attempt`,
+        {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${localStorage.getItem('token')}`,
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({
+            lesson_id: currentLesson.id,
+            quiz_id: currentLesson.quiz.id || currentLesson.id,
+            score: score,
+            passed: passed,
+            answers: quizAnswers
+          })
+        }
+      );
+
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
       }
-    });
 
-    const score = Math.round((correctCount / questions.length) * 100);
-    setQuizScore(score);
-    setQuizCompleted(true);
+      const data = await response.json();
+      console.log('Quiz result saved:', data);
 
-    // Можно добавить сохранение результата в БД
-    // saveQuizResult(currentLesson.id, score, quizAnswers);
+      // Обновляем состояние
+      setQuizScore(score);
+      setQuizCompleted(true);
+
+      // Обновляем прогресс урока
+      await loadLessonProgress(currentLesson.id);
+
+    } catch (error) {
+      console.error('Error submitting quiz:', error);
+      // Даже если сохранение не удалось, показываем результат
+      // Пересчитываем score локально
+      let localCorrectCount = 0;
+      const questions = currentLesson.quiz.questions;
+      questions.forEach(question => {
+        const userAnswer = quizAnswers[question.id];
+        if (userAnswer === question.correct_answer) {
+          localCorrectCount++;
+        }
+      });
+      const score = Math.round((localCorrectCount / questions.length) * 100);
+      setQuizScore(score);
+      setQuizCompleted(true);
+    }
   };
 
   const restartQuiz = () => {

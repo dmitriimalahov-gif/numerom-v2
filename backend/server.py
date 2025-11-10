@@ -68,6 +68,14 @@ class ReviewResponseRequest(BaseModel):
     """Модель для комментария администратора к ответу студента"""
     admin_comment: str
 
+class QuizAttemptRequest(BaseModel):
+    """Модель для сохранения результата прохождения теста"""
+    lesson_id: str
+    quiz_id: str
+    score: int
+    passed: bool
+    answers: dict  # {question_id: answer}
+
 # Инициализация подключения к MongoDB
 @app_v2.on_event("startup")
 async def startup_event():
@@ -774,6 +782,107 @@ async def get_lesson_progress(
     except Exception as e:
         logger.error(f"Error getting lesson progress: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Ошибка при получении прогресса: {str(e)}")
+
+
+# ===== ENDPOINTS ДЛЯ ТЕСТОВ (СТУДЕНТЫ) =====
+
+@app_v2.post("/api/student/quiz-attempt")
+async def submit_quiz_attempt(
+    request: QuizAttemptRequest,
+    current_user: dict = Depends(get_current_user)
+):
+    """Сохранить результат прохождения теста студентом"""
+    try:
+        user_id = current_user.get('user_id', current_user.get('id', 'unknown'))
+        lesson_id = request.lesson_id
+        quiz_id = request.quiz_id
+        score = request.score
+        passed = request.passed
+        answers = request.answers
+        
+        # Создаем запись о попытке
+        attempt_data = {
+            "id": str(uuid.uuid4()),
+            "user_id": user_id,
+            "lesson_id": lesson_id,
+            "quiz_id": quiz_id,
+            "score": score,
+            "passed": passed,
+            "answers": answers,
+            "attempted_at": datetime.utcnow()
+        }
+        
+        # Сохраняем попытку
+        await db.quiz_attempts.insert_one(attempt_data)
+        
+        # Обновляем прогресс урока
+        await db.lesson_progress.update_one(
+            {
+                "user_id": user_id,
+                "lesson_id": lesson_id
+            },
+            {
+                "$set": {
+                    "quiz_completed": passed,
+                    "last_activity_at": datetime.utcnow()
+                }
+            },
+            upsert=True
+        )
+        
+        # Пересчитываем общий прогресс
+        await update_lesson_progress(user_id, lesson_id)
+        
+        logger.info(f"Quiz attempt saved: user={user_id}, lesson={lesson_id}, score={score}%")
+        
+        return {
+            "message": "Результат теста сохранен",
+            "attempt_id": attempt_data["id"],
+            "score": score,
+            "passed": passed
+        }
+        
+    except Exception as e:
+        logger.error(f"Error saving quiz attempt: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Ошибка при сохранении результата теста: {str(e)}")
+
+
+@app_v2.get("/api/student/quiz-attempts/{lesson_id}")
+async def get_quiz_attempts(
+    lesson_id: str,
+    current_user: dict = Depends(get_current_user)
+):
+    """Получить все попытки прохождения теста студентом"""
+    try:
+        user_id = current_user.get('user_id', current_user.get('id', 'unknown'))
+        
+        attempts_cursor = db.quiz_attempts.find({
+            "user_id": user_id,
+            "lesson_id": lesson_id
+        }).sort("attempted_at", -1)  # Сортировка по дате (новые первые)
+        
+        attempts = await attempts_cursor.to_list(length=None)
+        
+        # Форматируем данные
+        formatted_attempts = []
+        for attempt in attempts:
+            formatted_attempts.append({
+                "id": attempt.get("id"),
+                "score": attempt.get("score"),
+                "passed": attempt.get("passed"),
+                "attempted_at": attempt.get("attempted_at").isoformat() if attempt.get("attempted_at") else None
+            })
+        
+        return {
+            "lesson_id": lesson_id,
+            "attempts": formatted_attempts,
+            "best_score": max([a["score"] for a in formatted_attempts]) if formatted_attempts else 0,
+            "total_attempts": len(formatted_attempts)
+        }
+        
+    except Exception as e:
+        logger.error(f"Error getting quiz attempts: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Ошибка при получении попыток теста: {str(e)}")
 
 
 # ===== ENDPOINTS ДЛЯ ЧЕЛЛЕНДЖЕЙ (СТУДЕНТЫ) =====
