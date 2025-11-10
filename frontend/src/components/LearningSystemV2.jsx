@@ -297,16 +297,24 @@ const LearningSystemV2 = () => {
   // Сброс челленджа для повторного прохождения (создание новой попытки)
   const restartChallenge = async () => {
     try {
-      // Сбрасываем локальное состояние
-      setChallengeProgress(null);
+      console.log('Restarting challenge...');
+      
+      // Сбрасываем локальное состояние на пустой прогресс
+      setChallengeProgress({
+        current_day: 1,
+        completed_days: [],
+        daily_notes: [],
+        is_completed: false,
+        attempt_number: (challengeProgress?.total_attempts || 0) + 1,
+        total_attempts: (challengeProgress?.total_attempts || 0) + 1,
+        points_earned: 0,
+        total_points: challengeProgress?.total_points || 0
+      });
+      
+      // Очищаем заметки
       setChallengeNotes({});
       
-      // Перезагружаем данные челленджа (автоматически создаст новую попытку при первом сохранении)
-      if (currentLesson && currentLesson.challenge) {
-        await loadChallengeProgress(currentLesson.id, currentLesson.challenge.id);
-      }
-      
-      console.log('Challenge restarted - new attempt will be created on first save');
+      console.log('Challenge restarted successfully - new attempt ready');
     } catch (error) {
       console.error('Error restarting challenge:', error);
     }
