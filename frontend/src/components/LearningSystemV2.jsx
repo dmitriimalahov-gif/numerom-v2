@@ -1582,16 +1582,37 @@ const LearningSystemV2 = () => {
                   <div className="p-2 bg-orange-100 rounded-lg">
                     <Calendar className="w-6 h-6 text-orange-600" />
                   </div>
-                  <div>
+                  <div className="flex-1">
                     <h5 className="font-semibold text-orange-900">Челлендж</h5>
                     <p className="text-sm text-orange-700">{completedChallengeDays} из {challengeDays} дней</p>
                   </div>
+                  {/* Баллы за челлендж */}
+                  {challengeHistory.length > 0 && (
+                    <div className="text-right">
+                      <p className="text-xl font-bold text-orange-600">
+                        {challengeHistory.reduce((sum, a) => sum + (a.points_earned || 0), 0)} 🌟
+                      </p>
+                      <p className="text-xs text-orange-600">баллов</p>
+                    </div>
+                  )}
                 </div>
                 <Progress value={challengeProgressPercent} className="h-2 mb-2" />
-                <p className="text-xs text-orange-600">{challengeProgressPercent}% выполнено</p>
+                <div className="flex items-center justify-between">
+                  <p className="text-xs text-orange-600">{challengeProgressPercent}% выполнено</p>
+                  {challengeHistory.length > 0 && (
+                    <p className="text-xs text-orange-700">
+                      Попыток: {challengeHistory.length}
+                    </p>
+                  )}
+                </div>
                 {challengeProgress?.is_completed && (
+                  <p className="text-xs text-green-700 mt-2 font-semibold">
+                    ✅ Челлендж завершен!
+                  </p>
+                )}
+                {!challengeProgress?.is_completed && challengeHistory.filter(a => a.is_completed).length > 0 && (
                   <p className="text-xs text-orange-700 mt-2">
-                    🎉 Челлендж завершен!
+                    ✓ Завершено попыток: {challengeHistory.filter(a => a.is_completed).length}
                   </p>
                 )}
               </div>
