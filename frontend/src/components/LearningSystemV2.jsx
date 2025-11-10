@@ -1011,7 +1011,7 @@ const LearningSystemV2 = () => {
             </div>
           ))}
 
-          <div className="flex justify-between">
+          <div className="flex justify-between items-center">
             <Button
               variant="outline"
               onClick={() => setCurrentSection('theory')}
@@ -1019,6 +1019,43 @@ const LearningSystemV2 = () => {
             >
               <ChevronLeft className="w-4 h-4" />
               Назад к теории
+            </Button>
+
+            <div className="flex gap-2">
+              <Button
+                variant="destructive"
+                onClick={async () => {
+                  if (window.confirm('Вы уверены, что хотите пройти урок заново? Это удалит ваши ответы на упражнения и прогресс урока. История тестов и челленджей сохранится.')) {
+                    try {
+                      const response = await fetch(
+                        `${backendUrl}/api/student/reset-lesson/${currentLesson.id}`,
+                        {
+                          method: 'DELETE',
+                          headers: {
+                            'Authorization': `Bearer ${localStorage.getItem('token')}`,
+                            'Content-Type': 'application/json'
+                          }
+                        }
+                      );
+                      
+                      if (response.ok) {
+                        // Перезагружаем урок
+                        await startLesson(currentLesson);
+                        setCurrentSection('theory');
+                        alert('Прогресс урока сброшен! Вы можете начать заново.');
+                      } else {
+                        alert('Ошибка при сбросе прогресса');
+                      }
+                    } catch (error) {
+                      console.error('Error resetting lesson:', error);
+                      alert('Ошибка при сбросе прогресса');
+                    }
+                  }
+                }}
+                className="flex items-center gap-2"
+              >
+                <PlayCircle className="w-4 h-4" />
+                Пройти урок заново
             </Button>
 
             {currentLesson.challenge ? (
@@ -1046,6 +1083,7 @@ const LearningSystemV2 = () => {
                 <ChevronRight className="w-4 h-4" />
               </Button>
             )}
+            </div>
           </div>
         </CardContent>
       </Card>
@@ -1598,7 +1636,7 @@ const LearningSystemV2 = () => {
             <h4 className="font-semibold text-yellow-900 text-lg mb-4 flex items-center gap-2">
               <Trophy className="w-6 h-6 text-yellow-600" />
               Заработанные баллы
-            </h4>
+              </h4>
             <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
               {/* Баллы за челленджи */}
               {challengeHistory.length > 0 && (
@@ -1606,7 +1644,7 @@ const LearningSystemV2 = () => {
                   <div className="flex items-center gap-2 mb-2">
                     <Calendar className="w-5 h-5 text-orange-600" />
                     <p className="text-sm font-medium text-gray-700">Челленджи</p>
-          </div>
+            </div>
                   <p className="text-3xl font-bold text-orange-600">
                     {challengeHistory.reduce((sum, a) => sum + (a.points_earned || 0), 0)} 🌟
                   </p>
@@ -2114,42 +2152,6 @@ const LearningSystemV2 = () => {
               >
                 <Home className="w-4 h-4 mr-1" />
                 К списку уроков
-              </Button>
-              
-              <Button
-                variant="destructive"
-                onClick={async () => {
-                  if (window.confirm('Вы уверены, что хотите пройти урок заново? Это удалит ваши ответы на упражнения и прогресс урока. История тестов и челленджей сохранится.')) {
-                    try {
-                      const response = await fetch(
-                        `${backendUrl}/api/student/reset-lesson/${currentLesson.id}`,
-                        {
-                          method: 'DELETE',
-                          headers: {
-                            'Authorization': `Bearer ${localStorage.getItem('token')}`,
-                            'Content-Type': 'application/json'
-                          }
-                        }
-                      );
-                      
-                      if (response.ok) {
-                        // Перезагружаем урок
-                        await startLesson(currentLesson);
-                        setCurrentSection('theory');
-                        alert('Прогресс урока сброшен! Вы можете начать заново.');
-                      } else {
-                        alert('Ошибка при сбросе прогресса');
-                      }
-                    } catch (error) {
-                      console.error('Error resetting lesson:', error);
-                      alert('Ошибка при сбросе прогресса');
-                    }
-                  }
-                }}
-                className="flex items-center gap-2"
-              >
-                <PlayCircle className="w-4 h-4 mr-1" />
-                Пройти заново
               </Button>
 
               <Button
