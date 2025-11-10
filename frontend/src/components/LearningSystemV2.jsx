@@ -43,6 +43,7 @@ const LearningSystemV2 = () => {
   const [challengeProgress, setChallengeProgress] = useState(null);
   const [challengeNotes, setChallengeNotes] = useState({});
   const [savingChallengeNote, setSavingChallengeNote] = useState({});
+  const [challengeHistory, setChallengeHistory] = useState([]); // История всех попыток челленджа
   
   // Состояния для теста
   const [quizStarted, setQuizStarted] = useState(false);
@@ -207,9 +208,10 @@ const LearningSystemV2 = () => {
       await loadExerciseResponses(lesson.id);
       await loadLessonProgress(lesson.id);
       
-      // Загружаем прогресс челленджа если есть
+      // Загружаем прогресс челленджа и историю если есть
       if (data.lesson.challenge) {
         await loadChallengeProgress(lesson.id, data.lesson.challenge.id);
+        await loadChallengeHistory(lesson.id, data.lesson.challenge.id);
       }
     } catch (error) {
       console.error('Error loading lesson:', error);
@@ -218,6 +220,7 @@ const LearningSystemV2 = () => {
   };
 
   // Загрузка прогресса челленджа
+  // Загрузка текущего прогресса челленджа
   const loadChallengeProgress = async (lessonId, challengeId) => {
     try {
       const response = await fetch(
@@ -243,6 +246,28 @@ const LearningSystemV2 = () => {
       }
     } catch (error) {
       console.error('Error loading challenge progress:', error);
+    }
+  };
+
+  // Загрузка истории всех попыток челленджа
+  const loadChallengeHistory = async (lessonId, challengeId) => {
+    try {
+      const response = await fetch(
+        `${backendUrl}/api/student/challenge-history/${lessonId}/${challengeId}`,
+        {
+          headers: {
+            'Authorization': `Bearer ${localStorage.getItem('token')}`,
+            'Content-Type': 'application/json'
+          }
+        }
+      );
+
+      if (response.ok) {
+        const data = await response.json();
+        setChallengeHistory(data.attempts || []);
+      }
+    } catch (error) {
+      console.error('Error loading challenge history:', error);
     }
   };
 
@@ -281,8 +306,9 @@ const LearningSystemV2 = () => {
         [day]: note
       }));
 
-      // Перезагружаем прогресс
+      // Перезагружаем прогресс и историю
       await loadChallengeProgress(lessonId, challengeId);
+      await loadChallengeHistory(lessonId, challengeId);
       await loadLessonProgress(lessonId);
 
       return data;
@@ -1580,6 +1606,125 @@ const LearningSystemV2 = () => {
               )}
             </div>
           </div>
+
+          {/* История прохождения челленджа */}
+          {hasChallenge && challengeHistory.length > 0 && (
+            <div className="bg-gradient-to-r from-orange-50 to-yellow-50 rounded-lg p-6 border border-orange-200">
+              <h4 className="font-semibold text-orange-900 mb-4 flex items-center gap-2">
+                <Calendar className="w-5 h-5" />
+                История прохождения челленджа
+              </h4>
+              <div className="space-y-3">
+                {challengeHistory.map((attempt, index) => (
+                  <div 
+                    key={index} 
+                    className={`bg-white rounded-lg p-4 border-2 ${
+                      attempt.is_completed 
+                        ? 'border-green-300' 
+                        : 'border-orange-300'
+                    }`}
+                  >
+                    <div className="flex items-center justify-between mb-3">
+                      <div className="flex items-center gap-3">
+                        <div className={`w-10 h-10 rounded-full flex items-center justify-center font-bold ${
+                          attempt.is_completed 
+                            ? 'bg-green-100 text-green-700' 
+                            : 'bg-orange-100 text-orange-700'
+                        }`}>
+                          #{attempt.attempt_number}
+                        </div>
+                        <div>
+                          <p className="font-semibold text-gray-900">
+                            Попытка {attempt.attempt_number}
+                            {attempt.is_completed && ' ✓'}
+                          </p>
+                          <p className="text-xs text-gray-600">
+                            {new Date(attempt.started_at).toLocaleDateString('ru-RU')}
+                            {attempt.completed_at && ` - ${new Date(attempt.completed_at).toLocaleDateString('ru-RU')}`}
+                          </p>
+                        </div>
+                      </div>
+                      <div className="text-right">
+                        <p className="text-2xl font-bold text-yellow-600">
+                          {attempt.points_earned} 🌟
+                        </p>
+                        <p className="text-xs text-gray-600">
+                          {attempt.completed_days?.length || 0} / {challengeDays} дней
+                        </p>
+                      </div>
+                    </div>
+                    
+                    {/* Прогресс-бар */}
+                    <div className="mb-3">
+                      <Progress 
+                        value={(attempt.completed_days?.length || 0) / challengeDays * 100} 
+                        className="h-2"
+                      />
+                    </div>
+                    
+                    {/* Заметки */}
+                    {attempt.daily_notes && attempt.daily_notes.length > 0 && (
+                      <div className="mt-3 space-y-2">
+                        <p className="text-xs font-semibold text-gray-700">Заметки:</p>
+                        <div className="grid grid-cols-1 gap-2 max-h-40 overflow-y-auto">
+                          {attempt.daily_notes.slice(0, 3).map((note, noteIndex) => (
+                            <div key={noteIndex} className="bg-gray-50 rounded p-2">
+                              <p className="text-xs text-gray-600">
+                                <span className="font-medium">День {note.day}:</span> {note.note.substring(0, 100)}
+                                {note.note.length > 100 && '...'}
+                              </p>
+                            </div>
+                          ))}
+                          {attempt.daily_notes.length > 3 && (
+                            <p className="text-xs text-gray-500 text-center">
+                              +{attempt.daily_notes.length - 3} заметок
+                            </p>
+                          )}
+                        </div>
+                      </div>
+                    )}
+                    
+                    {/* Статус */}
+                    <div className="mt-3 pt-3 border-t border-gray-200">
+                      {attempt.is_completed ? (
+                        <p className="text-sm text-green-700 font-medium">
+                          🎉 Челлендж завершен! Заработано {attempt.points_earned} баллов
+                        </p>
+                      ) : (
+                        <p className="text-sm text-orange-700 font-medium">
+                          ⏳ В процессе выполнения
+                        </p>
+                      )}
+                    </div>
+                  </div>
+                ))}
+                
+                {/* Общая статистика */}
+                <div className="bg-gradient-to-r from-yellow-100 to-orange-100 rounded-lg p-4 mt-4">
+                  <div className="grid grid-cols-3 gap-4 text-center">
+                    <div>
+                      <p className="text-2xl font-bold text-orange-700">
+                        {challengeHistory.length}
+                      </p>
+                      <p className="text-xs text-orange-600">Попыток</p>
+                    </div>
+                    <div>
+                      <p className="text-2xl font-bold text-green-700">
+                        {challengeHistory.filter(a => a.is_completed).length}
+                      </p>
+                      <p className="text-xs text-green-600">Завершено</p>
+                    </div>
+                    <div>
+                      <p className="text-2xl font-bold text-yellow-700">
+                        {challengeHistory.reduce((sum, a) => sum + (a.points_earned || 0), 0)} 🌟
+                      </p>
+                      <p className="text-xs text-yellow-600">Всего баллов</p>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
 
           {/* Рекомендации */}
           <div className="bg-blue-50 rounded-lg p-6 border border-blue-200">
