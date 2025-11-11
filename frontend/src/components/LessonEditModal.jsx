@@ -6,7 +6,7 @@ import { Input } from './ui/input';
 import { Label } from './ui/label';
 import { Textarea } from './ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
-import { Edit, Save, X, Plus, Trash2, BookOpen, Brain, Users, FileText, BarChart3, Upload, Calendar } from 'lucide-react';
+import { Edit, Save, X, Plus, Trash2, BookOpen, Brain, Users, FileText, BarChart3, Upload, Calendar, Eye, Download, ExternalLink } from 'lucide-react';
 
 const LessonEditModal = ({ 
   lesson, 
@@ -23,6 +23,20 @@ const LessonEditModal = ({
   const [loadingAnalytics, setLoadingAnalytics] = useState(false);
   const [reviewingResponse, setReviewingResponse] = useState(null);
   const [adminComment, setAdminComment] = useState('');
+  const [filesAnalytics, setFilesAnalytics] = useState(null);
+  
+  // Состояния для загрузки файлов
+  const [theoryMediaFiles, setTheoryMediaFiles] = useState([]);
+  const [theoryDocuments, setTheoryDocuments] = useState([]);
+  const [uploadingFile, setUploadingFile] = useState(false);
+  
+  // Состояния для модальных окон просмотра
+  const [viewingFile, setViewingFile] = useState(null);
+  const [fileViewerOpen, setFileViewerOpen] = useState(false);
+  
+  // Состояния для трекинга видео
+  const [videoWatchStartTime, setVideoWatchStartTime] = useState(null);
+  const [videoWatchInterval, setVideoWatchInterval] = useState(null);
 
   // Синхронизация с пропсом lesson при его изменении
   useEffect(() => {
@@ -91,6 +105,22 @@ const LessonEditModal = ({
         setChallengeNotes(data.notes || []);
       }
       
+      // Загружаем аналитику файлов
+      const filesResponse = await fetch(
+        `http://localhost:8000/api/admin/lesson-files-analytics/${lesson.id}`,
+        {
+          headers: {
+            'Authorization': `Bearer ${localStorage.getItem('token')}`,
+            'Content-Type': 'application/json'
+          }
+        }
+      );
+      
+      if (filesResponse.ok) {
+        const data = await filesResponse.json();
+        setFilesAnalytics(data);
+      }
+      
     } catch (error) {
       console.error('Error loading analytics:', error);
     } finally {
@@ -133,6 +163,267 @@ const LessonEditModal = ({
     } catch (error) {
       console.error('Error reviewing response:', error);
       alert('Ошибка при добавлении комментария');
+    }
+  };
+
+  // ===== ФУНКЦИИ ДЛЯ РАБОТЫ С ФАЙЛАМИ =====
+  
+  // Загрузка списка файлов для раздела
+  const loadFiles = async (section) => {
+    if (!lesson?.id) return;
+    
+    try {
+      const response = await fetch(
+        `http://localhost:8000/api/admin/files?lesson_id=${lesson.id}&section=${section}`,
+        {
+          headers: {
+            'Authorization': `Bearer ${localStorage.getItem('token')}`,
+            'Content-Type': 'application/json'
+          }
+        }
+      );
+      
+      if (response.ok) {
+        const data = await response.json();
+        
+        // Разделяем файлы на медиа и документы
+        const mediaFiles = data.files.filter(f => f.file_type === 'media');
+        const documents = data.files.filter(f => f.file_type === 'document');
+        
+        // Обновляем состояние в зависимости от раздела
+        if (section === 'theory') {
+          setTheoryMediaFiles(mediaFiles);
+          setTheoryDocuments(documents);
+        }
+      }
+    } catch (error) {
+      console.error('Error loading files:', error);
+    }
+  };
+  
+  // Загрузка файла
+  const handleFileUpload = async (event, section, fileType) => {
+    const files = event.target.files;
+    if (!files || files.length === 0) return;
+    
+    setUploadingFile(true);
+    
+    try {
+      for (let i = 0; i < files.length; i++) {
+        const file = files[i];
+        
+        // Создаем FormData
+        const formData = new FormData();
+        formData.append('file', file);
+        formData.append('lesson_id', lesson.id);
+        formData.append('section', section);
+        formData.append('file_type', fileType);
+        
+        const response = await fetch(
+          'http://localhost:8000/api/admin/upload-file',
+          {
+            method: 'POST',
+            headers: {
+              'Authorization': `Bearer ${localStorage.getItem('token')}`
+            },
+            body: formData
+          }
+        );
+        
+        if (!response.ok) {
+          const error = await response.json();
+          throw new Error(error.detail || 'Ошибка загрузки файла');
+        }
+      }
+      
+      // Перезагружаем список файлов
+      await loadFiles(section);
+      alert(`Успешно загружено файлов: ${files.length}`);
+      
+    } catch (error) {
+      console.error('Error uploading file:', error);
+      alert(`Ошибка загрузки: ${error.message}`);
+    } finally {
+      setUploadingFile(false);
+      event.target.value = ''; // Сбрасываем input
+    }
+  };
+  
+  // Удаление файла
+  const handleFileDelete = async (fileId, section) => {
+    if (!window.confirm('Удалить этот файл?')) return;
+    
+    try {
+      const response = await fetch(
+        `http://localhost:8000/api/admin/files/${fileId}`,
+        {
+          method: 'DELETE',
+          headers: {
+            'Authorization': `Bearer ${localStorage.getItem('token')}`,
+            'Content-Type': 'application/json'
+          }
+        }
+      );
+      
+      if (response.ok) {
+        // Перезагружаем список файлов
+        await loadFiles(section);
+        alert('Файл удален');
+      }
+    } catch (error) {
+      console.error('Error deleting file:', error);
+      alert('Ошибка при удалении файла');
+    }
+  };
+  
+  // Загрузка файлов при открытии вкладки теории
+  useEffect(() => {
+    if (activeTab === 'theory' && lesson?.id) {
+      loadFiles('theory');
+    }
+  }, [activeTab, lesson?.id]);
+
+  // Функция для открытия просмотра файла
+  const handleViewFile = async (file) => {
+    setViewingFile(file);
+    setFileViewerOpen(true);
+    
+    // Отправляем событие просмотра
+    try {
+      const token = localStorage.getItem('token');
+      await fetch('http://localhost:8000/api/student/file-analytics', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({
+          file_id: file.id,
+          lesson_id: lesson.id,
+          action: 'view'
+        })
+      });
+    } catch (error) {
+      console.error('Error tracking file view:', error);
+    }
+  };
+
+  // Функция для закрытия просмотра файла
+  const handleCloseFileViewer = () => {
+    // Останавливаем трекинг видео
+    if (videoWatchInterval) {
+      clearInterval(videoWatchInterval);
+      setVideoWatchInterval(null);
+    }
+    
+    // Отправляем финальное время просмотра
+    if (videoWatchStartTime && viewingFile?.mime_type?.startsWith('video/')) {
+      const minutesWatched = Math.floor((Date.now() - videoWatchStartTime) / 60000);
+      if (minutesWatched > 0) {
+        sendVideoWatchTime(viewingFile.id, minutesWatched);
+      }
+    }
+    
+    setViewingFile(null);
+    setFileViewerOpen(false);
+    setVideoWatchStartTime(null);
+  };
+  
+  // Функция для отправки времени просмотра видео
+  const sendVideoWatchTime = async (fileId, minutesWatched) => {
+    try {
+      const token = localStorage.getItem('token');
+      await fetch('http://localhost:8000/api/student/video-watch-time', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({
+          file_id: fileId,
+          lesson_id: lesson.id,
+          minutes_watched: minutesWatched
+        })
+      });
+    } catch (error) {
+      console.error('Error tracking video watch time:', error);
+    }
+  };
+  
+  // useEffect для трекинга видео
+  useEffect(() => {
+    if (fileViewerOpen && viewingFile?.mime_type?.startsWith('video/')) {
+      // Начинаем трекинг
+      setVideoWatchStartTime(Date.now());
+      
+      // Отправляем данные каждую минуту
+      const interval = setInterval(() => {
+        sendVideoWatchTime(viewingFile.id, 1);
+      }, 60000); // 60000 мс = 1 минута
+      
+      setVideoWatchInterval(interval);
+      
+      // Очистка при размонтировании
+      return () => {
+        if (interval) {
+          clearInterval(interval);
+        }
+      };
+    }
+  }, [fileViewerOpen, viewingFile]);
+
+  // Функция для скачивания файла
+  const handleDownloadFile = async (file) => {
+    try {
+      const token = localStorage.getItem('token');
+      
+      // Отправляем событие скачивания
+      try {
+        await fetch('http://localhost:8000/api/student/file-analytics', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${token}`
+          },
+          body: JSON.stringify({
+            file_id: file.id,
+            lesson_id: lesson.id,
+            action: 'download'
+          })
+        });
+      } catch (analyticsError) {
+        console.error('Error tracking file download:', analyticsError);
+      }
+      
+      // Скачиваем файл
+      const response = await fetch(`http://localhost:8000/api/download-file/${file.id}`, {
+        method: 'GET',
+        headers: {
+          'Authorization': `Bearer ${token}`
+        }
+      });
+
+      if (!response.ok) {
+        throw new Error('Ошибка при скачивании файла');
+      }
+
+      // Получаем blob из ответа
+      const blob = await response.blob();
+      
+      // Создаем ссылку для скачивания
+      const url = window.URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = file.original_name;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      
+      // Освобождаем память
+      window.URL.revokeObjectURL(url);
+    } catch (error) {
+      console.error('Error downloading file:', error);
+      alert('Ошибка при скачивании файла');
     }
   };
 
@@ -1019,6 +1310,7 @@ const LessonEditModal = ({
               <div className="flex justify-between items-center mb-4">
                 <h3 className="text-lg font-semibold">Блоки теории ({editedLesson.theory?.length || 0})</h3>
                 <div className="flex gap-2">
+                  {/* Загрузка теории из текстового файла */}
                   <input
                     type="file"
                     id="upload-theory"
@@ -1035,6 +1327,47 @@ const LessonEditModal = ({
                     <Upload className="w-4 h-4 mr-1" />
                     Загрузить из файла
                   </Button>
+                  
+                  {/* Загрузка медиафайлов */}
+                  <input
+                    type="file"
+                    id="upload-theory-media"
+                    accept="image/*,video/*"
+                    multiple
+                    onChange={(e) => handleFileUpload(e, 'theory', 'media')}
+                    className="hidden"
+                  />
+                  <Button 
+                    onClick={() => document.getElementById('upload-theory-media').click()} 
+                    size="sm" 
+                    variant="outline"
+                    className="border-purple-600 text-purple-600 hover:bg-purple-50"
+                    disabled={uploadingFile}
+                  >
+                    <Upload className="w-4 h-4 mr-1" />
+                    {uploadingFile ? 'Загрузка...' : 'Медиафайлы'}
+                  </Button>
+                  
+                  {/* Загрузка документов */}
+                  <input
+                    type="file"
+                    id="upload-theory-docs"
+                    accept=".pdf,.doc,.docx,.xls,.xlsx,.txt"
+                    multiple
+                    onChange={(e) => handleFileUpload(e, 'theory', 'document')}
+                    className="hidden"
+                  />
+                  <Button 
+                    onClick={() => document.getElementById('upload-theory-docs').click()} 
+                    size="sm" 
+                    variant="outline"
+                    className="border-green-600 text-green-600 hover:bg-green-50"
+                    disabled={uploadingFile}
+                  >
+                    <Upload className="w-4 h-4 mr-1" />
+                    {uploadingFile ? 'Загрузка...' : 'Документы'}
+                  </Button>
+                  
                   <Button onClick={addTheoryBlock} size="sm" className="bg-blue-600">
                     <Plus className="w-4 h-4 mr-1" />
                     Добавить блок
@@ -1085,6 +1418,113 @@ const LessonEditModal = ({
                 <div className="text-center py-8 text-gray-500">
                   <BookOpen className="w-12 h-12 mx-auto mb-2 opacity-50" />
                   <p>Нет блоков теории. Нажмите "Добавить блок" чтобы создать первый.</p>
+                </div>
+              )}
+
+              {/* ЗАГРУЖЕННЫЕ ФАЙЛЫ */}
+              {(theoryMediaFiles.length > 0 || theoryDocuments.length > 0) && (
+                <div className="mt-6 space-y-4">
+                  {/* Медиафайлы */}
+                  {theoryMediaFiles.length > 0 && (
+                    <div className="bg-purple-50 p-4 rounded-lg border border-purple-200">
+                      <h4 className="text-sm font-semibold text-purple-900 mb-3 flex items-center gap-2">
+                        <Upload className="w-4 h-4" />
+                        Медиафайлы ({theoryMediaFiles.length})
+                      </h4>
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                        {theoryMediaFiles.map((file) => (
+                          <div key={file.id} className="bg-white p-3 rounded border border-purple-200 flex justify-between items-center">
+                            <div className="flex-1 min-w-0">
+                              <p className="text-sm font-medium text-gray-900 truncate">{file.original_name}</p>
+                              <p className="text-xs text-gray-500">
+                                {(file.file_size / 1024 / 1024).toFixed(2)} МБ • {file.extension}
+                              </p>
+                            </div>
+                            <div className="flex gap-1 ml-2">
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                onClick={() => handleViewFile(file)}
+                                className="text-blue-600 hover:text-blue-700 hover:bg-blue-50"
+                                title="Просмотр"
+                              >
+                                <Eye className="w-4 h-4" />
+                              </Button>
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                onClick={() => handleDownloadFile(file)}
+                                className="text-green-600 hover:text-green-700 hover:bg-green-50"
+                                title="Скачать"
+                              >
+                                <Download className="w-4 h-4" />
+                              </Button>
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                onClick={() => handleFileDelete(file.id, 'theory')}
+                                className="text-red-600 hover:text-red-700 hover:bg-red-50"
+                                title="Удалить"
+                              >
+                                <Trash2 className="w-4 h-4" />
+                              </Button>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Документы */}
+                  {theoryDocuments.length > 0 && (
+                    <div className="bg-green-50 p-4 rounded-lg border border-green-200">
+                      <h4 className="text-sm font-semibold text-green-900 mb-3 flex items-center gap-2">
+                        <FileText className="w-4 h-4" />
+                        Документы ({theoryDocuments.length})
+                      </h4>
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                        {theoryDocuments.map((file) => (
+                          <div key={file.id} className="bg-white p-3 rounded border border-green-200 flex justify-between items-center">
+                            <div className="flex-1 min-w-0">
+                              <p className="text-sm font-medium text-gray-900 truncate">{file.original_name}</p>
+                              <p className="text-xs text-gray-500">
+                                {(file.file_size / 1024 / 1024).toFixed(2)} МБ • {file.extension}
+                              </p>
+                            </div>
+                            <div className="flex gap-1 ml-2">
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                onClick={() => handleViewFile(file)}
+                                className="text-blue-600 hover:text-blue-700 hover:bg-blue-50"
+                                title="Просмотр"
+                              >
+                                <Eye className="w-4 h-4" />
+                              </Button>
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                onClick={() => handleDownloadFile(file)}
+                                className="text-green-600 hover:text-green-700 hover:bg-green-50"
+                                title="Скачать"
+                              >
+                                <Download className="w-4 h-4" />
+                              </Button>
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                onClick={() => handleFileDelete(file.id, 'theory')}
+                                className="text-red-600 hover:text-red-700 hover:bg-red-50"
+                                title="Удалить"
+                              >
+                                <Trash2 className="w-4 h-4" />
+                              </Button>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
                 </div>
               )}
             </TabsContent>
@@ -1988,6 +2428,76 @@ const LessonEditModal = ({
                       </div>
                     </div>
                   )}
+                  
+                  {/* Аналитика файлов */}
+                  {filesAnalytics && filesAnalytics.files && filesAnalytics.files.length > 0 && (
+                    <div className="bg-white p-5 rounded-lg border border-gray-200">
+                      <h3 className="text-base font-semibold mb-3 flex items-center gap-2">
+                        <FileText className="w-4 h-4 text-blue-600" />
+                        Аналитика файлов ({filesAnalytics.total_files})
+                      </h3>
+                      
+                      <div className="space-y-3">
+                        {filesAnalytics.files.map((file, index) => (
+                          <div 
+                            key={index} 
+                            className="p-4 rounded-lg border bg-blue-50 border-blue-200"
+                          >
+                            <div className="flex justify-between items-start mb-3">
+                              <div className="flex-1">
+                                <p className="font-medium text-sm mb-1">{file.file_name}</p>
+                                <div className="flex items-center gap-2 flex-wrap">
+                                  <span className="text-xs bg-blue-200 text-blue-800 px-2 py-0.5 rounded">
+                                    {file.section === 'theory' ? 'Теория' : 
+                                     file.section === 'exercises' ? 'Упражнения' : 
+                                     file.section === 'challenge' ? 'Челлендж' : 'Тест'}
+                                  </span>
+                                  <span className="text-xs bg-gray-200 text-gray-800 px-2 py-0.5 rounded">
+                                    {file.file_type === 'media' ? '🎬 Медиа' : '📄 Документ'}
+                                  </span>
+                                </div>
+                              </div>
+                            </div>
+                            
+                            <div className="grid grid-cols-3 gap-3 mb-3">
+                              <div className="bg-white p-2 rounded border border-blue-200">
+                                <p className="text-xs text-gray-600">Просмотры</p>
+                                <p className="text-lg font-semibold text-blue-600">{file.total_views}</p>
+                              </div>
+                              <div className="bg-white p-2 rounded border border-blue-200">
+                                <p className="text-xs text-gray-600">Скачивания</p>
+                                <p className="text-lg font-semibold text-green-600">{file.total_downloads}</p>
+                              </div>
+                              <div className="bg-white p-2 rounded border border-blue-200">
+                                <p className="text-xs text-gray-600">Уник. польз.</p>
+                                <p className="text-lg font-semibold text-purple-600">{file.unique_users}</p>
+                              </div>
+                            </div>
+                            
+                            {file.video_stats && (
+                              <div className="bg-gradient-to-r from-yellow-50 to-orange-50 p-3 rounded border border-yellow-200">
+                                <p className="text-xs font-semibold text-yellow-800 mb-2">📹 Статистика видео:</p>
+                                <div className="grid grid-cols-3 gap-2">
+                                  <div>
+                                    <p className="text-xs text-gray-600">Минут просмотра</p>
+                                    <p className="text-sm font-semibold text-yellow-700">{file.video_stats.total_watch_minutes}</p>
+                                  </div>
+                                  <div>
+                                    <p className="text-xs text-gray-600">Баллов начислено</p>
+                                    <p className="text-sm font-semibold text-green-700">{file.video_stats.total_points_earned}</p>
+                                  </div>
+                                  <div>
+                                    <p className="text-xs text-gray-600">Зрителей</p>
+                                    <p className="text-sm font-semibold text-blue-700">{file.video_stats.unique_watchers}</p>
+                                  </div>
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
                 </>
               ) : (
                 <div className="bg-gray-50 p-8 rounded-lg border border-gray-200 text-center">
@@ -2027,6 +2537,119 @@ const LessonEditModal = ({
           </Button>
         </DialogFooter>
       </DialogContent>
+
+      {/* Модальное окно просмотра файлов */}
+      {fileViewerOpen && viewingFile && (
+        <Dialog open={fileViewerOpen} onOpenChange={setFileViewerOpen}>
+          <DialogContent className="max-w-4xl w-[90vw] max-h-[90vh] h-[90vh] p-0 overflow-hidden bg-white flex flex-col">
+            <DialogHeader className="border-b border-gray-200 px-6 py-4 bg-gradient-to-r from-blue-50 to-indigo-50 flex-shrink-0">
+              <DialogTitle className="flex items-center gap-3 text-xl">
+                <Eye className="w-5 h-5 text-blue-600" />
+                Просмотр файла
+              </DialogTitle>
+              <DialogDescription className="text-sm mt-1">
+                {viewingFile.original_name} • {(viewingFile.file_size / 1024 / 1024).toFixed(2)} МБ • {viewingFile.extension}
+              </DialogDescription>
+            </DialogHeader>
+
+            <div className="flex-1 overflow-auto p-6 bg-gray-50">
+              {/* Изображения */}
+              {viewingFile.mime_type?.startsWith('image/') && (
+                <div className="flex items-center justify-center h-full">
+                  <img
+                    src={`http://localhost:8000/uploads/learning_v2/${viewingFile.stored_name}`}
+                    alt={viewingFile.original_name}
+                    className="max-w-full max-h-full object-contain rounded-lg shadow-lg"
+                  />
+                </div>
+              )}
+
+              {/* Видео */}
+              {viewingFile.mime_type?.startsWith('video/') && (
+                <div className="flex items-center justify-center h-full">
+                  <video
+                    controls
+                    className="max-w-full max-h-full rounded-lg shadow-lg"
+                    src={`http://localhost:8000/uploads/learning_v2/${viewingFile.stored_name}`}
+                  >
+                    Ваш браузер не поддерживает воспроизведение видео.
+                  </video>
+                </div>
+              )}
+
+              {/* PDF */}
+              {viewingFile.extension === 'pdf' && (
+                <iframe
+                  src={`http://localhost:8000/uploads/learning_v2/${viewingFile.stored_name}`}
+                  className="w-full h-full rounded-lg shadow-lg"
+                  title={viewingFile.original_name}
+                />
+              )}
+
+              {/* Текстовые файлы */}
+              {viewingFile.mime_type?.startsWith('text/') && (
+                <div className="bg-white p-6 rounded-lg shadow-lg h-full overflow-auto">
+                  <iframe
+                    src={`http://localhost:8000/uploads/learning_v2/${viewingFile.stored_name}`}
+                    className="w-full h-full border-0"
+                    title={viewingFile.original_name}
+                  />
+                </div>
+              )}
+
+              {/* Документы Word, Excel - предложение скачать */}
+              {(viewingFile.extension === 'doc' || 
+                viewingFile.extension === 'docx' || 
+                viewingFile.extension === 'xls' || 
+                viewingFile.extension === 'xlsx') && (
+                <div className="flex flex-col items-center justify-center h-full gap-4">
+                  <FileText className="w-24 h-24 text-gray-400" />
+                  <p className="text-lg font-semibold text-gray-700">
+                    Просмотр {viewingFile.extension.toUpperCase()} файлов в браузере не поддерживается
+                  </p>
+                  <p className="text-sm text-gray-500 mb-4">
+                    Скачайте файл для просмотра в соответствующем приложении
+                  </p>
+                  <Button
+                    onClick={() => handleDownloadFile(viewingFile)}
+                    className="bg-green-600 hover:bg-green-700 text-white"
+                  >
+                    <Download className="w-4 h-4 mr-2" />
+                    Скачать файл
+                  </Button>
+                </div>
+              )}
+            </div>
+
+            <DialogFooter className="border-t border-gray-200 px-6 py-4 bg-gray-50 flex-shrink-0">
+              <Button
+                variant="outline"
+                onClick={handleCloseFileViewer}
+                className="border-gray-300 hover:bg-gray-100"
+              >
+                <X className="w-4 h-4 mr-2" />
+                Закрыть
+              </Button>
+              <Button
+                onClick={() => handleDownloadFile(viewingFile)}
+                className="bg-green-600 hover:bg-green-700 text-white"
+              >
+                <Download className="w-4 h-4 mr-2" />
+                Скачать
+              </Button>
+              <Button
+                onClick={() => {
+                  window.open(`http://localhost:8000/uploads/learning_v2/${viewingFile.stored_name}`, '_blank');
+                }}
+                className="bg-blue-600 hover:bg-blue-700 text-white"
+              >
+                <ExternalLink className="w-4 h-4 mr-2" />
+                Открыть в новой вкладке
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+      )}
     </Dialog>
   );
 };

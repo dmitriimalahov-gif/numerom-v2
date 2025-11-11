@@ -88,6 +88,40 @@ db.student_analytics.createIndex({ "total_exercises_completed": -1 });
 db.student_analytics.createIndex({ "average_quiz_score": -1 });
 db.student_analytics.createIndex({ "last_activity_at": -1 });
 
+// ===== КОЛЛЕКЦИЯ: files =====
+// Хранит метаданные загруженных файлов (медиа и документы)
+print("Creating indexes for files...");
+db.files.createIndex({ "id": 1 }, { unique: true });
+db.files.createIndex({ "lesson_id": 1 });
+db.files.createIndex({ "section": 1 }); // theory, exercises, challenge, quiz
+db.files.createIndex({ "file_type": 1 }); // media, document
+db.files.createIndex({ "uploaded_by": 1 });
+db.files.createIndex({ "uploaded_at": -1 });
+db.files.createIndex({ "original_name": 1 });
+
+// ===== КОЛЛЕКЦИЯ: file_analytics =====
+// Аналитика просмотров и скачиваний файлов
+print("Creating indexes for file_analytics...");
+db.file_analytics.createIndex({ "id": 1 }, { unique: true });
+db.file_analytics.createIndex({ "file_id": 1 });
+db.file_analytics.createIndex({ "user_id": 1 });
+db.file_analytics.createIndex({ "lesson_id": 1 });
+db.file_analytics.createIndex({ "action": 1 }); // 'view' или 'download'
+db.file_analytics.createIndex({ "created_at": -1 });
+db.file_analytics.createIndex({ "file_id": 1, "user_id": 1 });
+db.file_analytics.createIndex({ "file_id": 1, "action": 1 });
+
+// ===== КОЛЛЕКЦИЯ: video_watch_time =====
+// Отслеживание времени просмотра видео для начисления баллов
+print("Creating indexes for video_watch_time...");
+db.video_watch_time.createIndex({ "id": 1 }, { unique: true });
+db.video_watch_time.createIndex({ "file_id": 1, "user_id": 1 }, { unique: true });
+db.video_watch_time.createIndex({ "user_id": 1 });
+db.video_watch_time.createIndex({ "lesson_id": 1 });
+db.video_watch_time.createIndex({ "total_minutes": -1 });
+db.video_watch_time.createIndex({ "total_points": -1 });
+db.video_watch_time.createIndex({ "last_updated": -1 });
+
 // ===== КОЛЛЕКЦИЯ: users =====
 // Хранит информацию о пользователях
 print("Creating indexes for users...");
@@ -108,6 +142,9 @@ print("  • lesson_progress - Прогресс по урокам");
 print("  • quiz_attempts - Попытки прохождения тестов");
 print("  • challenge_progress - Прогресс по челленджам");
 print("  • time_activity - Время активности и баллы");
+print("  • files - Метаданные загруженных файлов");
+print("  • file_analytics - Аналитика просмотров/скачиваний файлов");
+print("  • video_watch_time - Время просмотра видео и баллы");
 print("  • student_analytics - Общая аналитика студентов");
 print("  • users - Пользователи системы");
 print("========================================");

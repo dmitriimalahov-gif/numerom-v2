@@ -7,6 +7,7 @@
 from fastapi import FastAPI, HTTPException, Depends, UploadFile, File, Form
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse
 from pydantic import BaseModel
 import motor.motor_asyncio
 import os
@@ -14,10 +15,11 @@ from datetime import datetime, timedelta
 from typing import List, Optional
 import uuid
 import logging
+import traceback
 
 # Импорты моделей и функций
 from models import LessonV2, TheoryBlock, Exercise, Challenge, ChallengeDay, Quiz, QuizQuestion, LessonFile
-from auth import get_current_user, create_access_token
+from auth import get_current_user, create_access_token, get_password_hash, verify_password
 
 # Импорт базы данных (глобальный объект db)
 from motor.motor_asyncio import AsyncIOMotorClient
@@ -40,9 +42,12 @@ app_v2 = FastAPI(
 )
 
 # Настройка CORS для автономного проекта V2
+allowed_origins = os.getenv("ALLOWED_ORIGINS", "http://localhost:3000,https://numerom.site").split(",")
+allowed_origins = [origin.strip() for origin in allowed_origins if origin.strip()]
+
 app_v2.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000"],
+    allow_origins=allowed_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -82,6 +87,18 @@ class TimeActivityRequest(BaseModel):
     lesson_id: str
     minutes_spent: int  # Количество минут, проведенных на уроке
 
+class FileAnalyticsRequest(BaseModel):
+    """Модель для записи просмотра или скачивания файла"""
+    file_id: str
+    lesson_id: str
+    action: str  # 'view' или 'download'
+    
+class VideoWatchTimeRequest(BaseModel):
+    """Модель для отслеживания времени просмотра видео"""
+    file_id: str
+    lesson_id: str
+    minutes_watched: int  # Количество минут просмотра
+
 
 # Инициализация подключения к MongoDB
 @app_v2.on_event("startup")
@@ -95,41 +112,140 @@ async def shutdown_event():
 # ===== API ТОЛЬКО ДЛЯ СИСТЕМЫ ОБУЧЕНИЯ V2 =====
 
 # Простая аутентификация для тестирования системы обучения V2
+SUPER_ADMIN_EMAIL = os.getenv("SUPER_ADMIN_EMAIL", "dmitrii.malahov@gmail.com").lower()
+SUPER_ADMIN_PASSWORD = os.getenv("SUPER_ADMIN_PASSWORD", "756bvy67H")
+
+
 @app_v2.post("/api/auth/login")
 async def login_v2(request_data: dict):
-    """Простая аутентификация для системы обучения V2"""
-    email = request_data.get("email", "")
+    """Аутентификация для системы обучения V2"""
+    email_raw = request_data.get("email", "")
     password = request_data.get("password", "")
 
-    # Для тестирования принимаем любые credentials
-    # В реальной системе здесь должна быть проверка с основной БД
-    if email and password:
-        # Создаем тестовый токен
-        test_token = create_access_token({"sub": email, "user_id": "test_user_v2", "is_admin": True})
+    if not email_raw or not password:
+        raise HTTPException(status_code=400, detail="Не заполнены email или пароль")
+
+    email = email_raw.strip().lower()
+    is_super_admin = email == SUPER_ADMIN_EMAIL
+
+    if is_super_admin:
+        if password != SUPER_ADMIN_PASSWORD:
+            raise HTTPException(status_code=401, detail="Неверные учетные данные")
+
+        now = datetime.utcnow()
+        admin_update = {
+            "email": email,
+            "username": email,
+            "full_name": request_data.get("name") or "Суперадминистратор",
+            "is_admin": True,
+            "is_super_admin": True,
+            "password_hash": get_password_hash(password),
+            "updated_at": now
+        }
+
+        await db.users.update_one(
+            {"email": email},
+            {
+                "$set": admin_update,
+                "$setOnInsert": {
+                    "created_at": now
+                }
+            },
+            upsert=True
+        )
+
+        user_doc = await db.users.find_one({"email": email})
+        access_token = create_access_token({
+            "sub": email,
+            "user_id": user_doc.get("username", email),
+            "is_admin": True,
+            "is_super_admin": True
+        })
 
         return {
-            "access_token": test_token,
+            "access_token": access_token,
             "token_type": "bearer",
             "user": {
-                "id": "test_user_v2",
+                "id": user_doc.get("username", email),
                 "email": email,
-                "name": "Test User V2",
+                "full_name": user_doc.get("full_name", "Суперадминистратор"),
                 "is_admin": True,
                 "is_super_admin": True
             }
         }
 
-    raise HTTPException(status_code=401, detail="Invalid credentials")
+    # Обычные пользователи (студенты)
+    user_doc = await db.users.find_one({"email": email})
+
+    if not user_doc:
+        now = datetime.utcnow()
+        new_user = {
+            "email": email,
+            "username": email,
+            "full_name": request_data.get("name") or email.split('@')[0],
+            "password_hash": get_password_hash(password),
+            "is_admin": False,
+            "is_super_admin": False,
+            "created_at": now,
+            "updated_at": now
+        }
+        await db.users.insert_one(new_user)
+        user_doc = new_user
+    else:
+        stored_hash = user_doc.get("password_hash")
+        if not stored_hash or not verify_password(password, stored_hash):
+            raise HTTPException(status_code=401, detail="Неверные учетные данные")
+
+        if user_doc.get("is_admin") or user_doc.get("is_super_admin"):
+            await db.users.update_one(
+                {"email": email},
+                {"$set": {"is_admin": False, "is_super_admin": False}}
+            )
+            user_doc["is_admin"] = False
+            user_doc["is_super_admin"] = False
+
+    access_token = create_access_token({
+        "sub": email,
+        "user_id": user_doc.get("username", email),
+        "is_admin": False,
+        "is_super_admin": False
+    })
+
+    return {
+        "access_token": access_token,
+        "token_type": "bearer",
+        "user": {
+            "id": user_doc.get("username", email),
+            "email": email,
+            "full_name": user_doc.get("full_name", user_doc.get("username", email)),
+            "is_admin": False,
+            "is_super_admin": False
+        }
+    }
 
 @app_v2.get("/api/user/profile")
 async def get_user_profile_v2(current_user: dict = Depends(get_current_user)):
     """Получить профиль пользователя для системы обучения V2"""
+    email = current_user.get("sub")
+    if not email:
+        raise HTTPException(status_code=401, detail="Не удалось определить пользователя")
+
+    user_doc = await db.users.find_one({"email": email})
+    if not user_doc:
+        return {
+            "id": current_user.get("user_id", email),
+            "email": email,
+            "full_name": email.split('@')[0],
+            "is_admin": current_user.get("is_admin", False),
+            "is_super_admin": current_user.get("is_super_admin", False)
+        }
+
     return {
-        "id": current_user.get("user_id", "test_user_v2"),
-        "email": current_user.get("sub", "test@example.com"),
-        "name": "Test User V2",
-        "is_admin": True,
-        "is_super_admin": True
+        "id": user_doc.get("username", email),
+        "email": email,
+        "full_name": user_doc.get("full_name", email.split('@')[0]),
+        "is_admin": user_doc.get("is_admin", False),
+        "is_super_admin": user_doc.get("is_super_admin", False)
     }
 
 @app_v2.get("/api/learning-v2/lessons")
@@ -688,9 +804,31 @@ async def update_lesson_progress(user_id: str, lesson_id: str):
         })
         
         # Проверяем прогресс по другим разделам
-        theory_completed = False  # TODO: добавить отслеживание просмотра теории
-        challenge_completed = False  # TODO: проверить прогресс челленджа
-        quiz_completed = False  # TODO: проверить результаты теста
+        # Теория считается пройденной, если есть хоть какая-то активность в уроке
+        theory_completed = True  # Теория считается пройденной по умолчанию
+        
+        # Проверяем челлендж - есть ли хотя бы одна завершенная попытка
+        challenge_completed = False
+        if lesson.get("challenge"):
+            challenge_count = await db.challenge_progress.count_documents({
+                "user_id": user_id,
+                "lesson_id": lesson_id,
+                "is_completed": True
+            })
+            challenge_completed = challenge_count > 0
+        
+        # Проверяем тест - есть ли хотя бы одна пройденная попытка
+        quiz_completed = False
+        quiz_passed = False
+        if lesson.get("quiz"):
+            quiz_attempt = await db.quiz_attempts.find_one({
+                "user_id": user_id,
+                "lesson_id": lesson_id,
+                "passed": True
+            })
+            if quiz_attempt:
+                quiz_completed = True
+                quiz_passed = True
         
         # Вычисляем процент завершения
         total_sections = 0
@@ -701,7 +839,7 @@ async def update_lesson_progress(user_id: str, lesson_id: str):
             if theory_completed:
                 completed_sections += 1
         
-        if lesson.get("exercises"):
+        if lesson.get("exercises") and total_exercises > 0:
             total_sections += 1
             if completed_exercises >= total_exercises:
                 completed_sections += 1
@@ -717,6 +855,7 @@ async def update_lesson_progress(user_id: str, lesson_id: str):
                 completed_sections += 1
         
         completion_percentage = (completed_sections / total_sections * 100) if total_sections > 0 else 0
+        is_completed = completion_percentage >= 100
         
         # Обновляем или создаем запись прогресса
         progress_data = {
@@ -726,9 +865,9 @@ async def update_lesson_progress(user_id: str, lesson_id: str):
             "theory_completed": theory_completed,
             "challenge_completed": challenge_completed,
             "quiz_completed": quiz_completed,
-            "quiz_passed": False,
-            "completion_percentage": completion_percentage,
-            "is_completed": completion_percentage >= 100,
+            "quiz_passed": quiz_passed,
+            "completion_percentage": round(completion_percentage, 2),
+            "is_completed": is_completed,
             "last_activity_at": datetime.utcnow()
         }
         
@@ -738,6 +877,10 @@ async def update_lesson_progress(user_id: str, lesson_id: str):
         })
         
         if existing_progress:
+            # Если урок только что завершён, устанавливаем completed_at
+            if is_completed and not existing_progress.get("is_completed", False):
+                progress_data["completed_at"] = datetime.utcnow()
+            
             await db.lesson_progress.update_one(
                 {"_id": existing_progress["_id"]},
                 {"$set": progress_data}
@@ -745,11 +888,11 @@ async def update_lesson_progress(user_id: str, lesson_id: str):
         else:
             progress_data["id"] = str(uuid.uuid4())
             progress_data["started_at"] = datetime.utcnow()
-            progress_data["completed_at"] = None
+            progress_data["completed_at"] = datetime.utcnow() if is_completed else None
             progress_data["time_spent_minutes"] = 0
             await db.lesson_progress.insert_one(progress_data)
         
-        logger.info(f"Lesson progress updated: user={user_id}, lesson={lesson_id}, completion={completion_percentage}%")
+        logger.info(f"Lesson progress updated: user={user_id}, lesson={lesson_id}, completion={completion_percentage}%, sections: {completed_sections}/{total_sections}")
         
     except Exception as e:
         logger.error(f"Error updating lesson progress: {str(e)}")
@@ -763,6 +906,9 @@ async def get_lesson_progress(
     """Получить прогресс студента по уроку"""
     try:
         user_id = current_user.get('user_id', current_user.get('id', 'unknown'))
+        
+        # Пересчитываем прогресс перед возвратом
+        await update_lesson_progress(user_id, lesson_id)
         
         progress = await db.lesson_progress.find_one({
             "user_id": user_id,
@@ -1702,6 +1848,33 @@ async def get_analytics_overview(
         total_responses = await db.exercise_responses.count_documents({})
         pending_reviews = await db.exercise_responses.count_documents({"reviewed": False})
         
+        # Подсчет выданных баллов
+        challenge_points_cursor = await db.challenge_progress.aggregate([
+            {"$group": {"_id": None, "total": {"$sum": {"$ifNull": ["$points_earned", 0]}}}}
+        ]).to_list(length=None)
+        total_challenge_points = challenge_points_cursor[0]["total"] if challenge_points_cursor else 0
+        
+        quiz_points_cursor = await db.quiz_attempts.aggregate([
+            {"$group": {"_id": None, "total": {"$sum": {"$ifNull": ["$points_earned", 0]}}}}
+        ]).to_list(length=None)
+        total_quiz_points = quiz_points_cursor[0]["total"] if quiz_points_cursor else 0
+        
+        time_points_cursor = await db.time_activity.aggregate([
+            {"$group": {"_id": None, "total": {"$sum": {"$ifNull": ["$total_points", 0]}}}}
+        ]).to_list(length=None)
+        total_time_points = time_points_cursor[0]["total"] if time_points_cursor else 0
+        
+        video_points_cursor = await db.video_watch_time.aggregate([
+            {"$group": {"_id": None, "total": {"$sum": {"$ifNull": ["$total_points", 0]}}}}
+        ]).to_list(length=None)
+        total_video_points = video_points_cursor[0]["total"] if video_points_cursor else 0
+        
+        total_points_awarded = total_challenge_points + total_quiz_points + total_time_points + total_video_points
+        
+        # Уникальные активные студенты
+        active_students = await db.lesson_progress.distinct("user_id")
+        active_students_count = len(active_students)
+        
         # Активность за последние 7 дней
         seven_days_ago = datetime.utcnow() - timedelta(days=7)
         recent_activity = await db.lesson_progress.count_documents({
@@ -1735,13 +1908,60 @@ async def get_analytics_overview(
             for l in top_lessons
         ]
         
+        # Непроверенные ответы (детально)
+        pending_responses_cursor = db.exercise_responses.find({"reviewed": False}).sort("submitted_at", -1).limit(15)
+        pending_responses_list = await pending_responses_cursor.to_list(length=None)
+        
+        lesson_ids = list(set([resp.get("lesson_id") for resp in pending_responses_list if resp.get("lesson_id")]))
+        lessons_docs = await db.lessons_v2.find({"id": {"$in": lesson_ids}}).to_list(length=None)
+        lessons_map = {lesson.get("id"): lesson for lesson in lessons_docs}
+        
+        user_ids = list(set([resp.get("user_id") for resp in pending_responses_list if resp.get("user_id")]))
+        users_docs = await db.users.find({"username": {"$in": user_ids}}).to_list(length=None)
+        users_map = {user.get("username"): user for user in users_docs}
+        
+        pending_reviews_details = []
+        for response in pending_responses_list:
+            lesson_id = response.get("lesson_id")
+            exercise_id = response.get("exercise_id")
+            lesson_doc = lessons_map.get(lesson_id, {})
+            user_doc = users_map.get(response.get("user_id"), {})
+            
+            exercise_title = None
+            exercises = lesson_doc.get("exercises", []) if lesson_doc else []
+            for exercise in exercises:
+                if exercise.get("id") == exercise_id:
+                    exercise_title = exercise.get("title") or exercise.get("name")
+                    break
+            
+            pending_reviews_details.append({
+                "response_id": response.get("id") or str(response.get("_id")),
+                "user_id": response.get("user_id"),
+                "user_name": user_doc.get("full_name") or user_doc.get("username") or response.get("user_id"),
+                "lesson_id": lesson_id,
+                "lesson_title": lesson_doc.get("title", "Неизвестный урок"),
+                "exercise_id": exercise_id,
+                "exercise_title": exercise_title or f"Упражнение {exercise_id}",
+                "submitted_at": response.get("submitted_at").isoformat() if response.get("submitted_at") else None,
+                "response_text": response.get("response_text", "")
+            })
+        
         return {
             "total_lessons": total_lessons,
             "total_students": total_students,
             "total_responses": total_responses,
             "pending_reviews": pending_reviews,
             "recent_activity_7days": recent_activity,
-            "top_lessons": top_lessons_formatted
+            "top_lessons": top_lessons_formatted,
+            "points": {
+                "total": total_points_awarded,
+                "challenges": total_challenge_points,
+                "quizzes": total_quiz_points,
+                "time": total_time_points,
+                "videos": total_video_points
+            },
+            "active_students": active_students_count,
+            "pending_reviews_details": pending_reviews_details
         }
         
     except HTTPException:
@@ -1749,6 +1969,998 @@ async def get_analytics_overview(
     except Exception as e:
         logger.error(f"Error getting analytics overview: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Ошибка при получении общей аналитики: {str(e)}")
+
+
+# ===== ENDPOINTS ДЛЯ ЗАГРУЗКИ ФАЙЛОВ (АДМИНИСТРАТОР) =====
+
+# Монтируем папку uploads для доступа к файлам
+app_v2.mount("/uploads", StaticFiles(directory="uploads"), name="uploads")
+
+@app_v2.get("/api/download-file/{file_id}")
+async def download_file(
+    file_id: str,
+    current_user: dict = Depends(get_current_user)
+):
+    """Скачать файл с заголовком Content-Disposition: attachment (доступно всем авторизованным пользователям)"""
+    try:
+        # Находим файл в базе данных
+        file_doc = await db.files.find_one({"id": file_id})
+        if not file_doc:
+            raise HTTPException(status_code=404, detail="Файл не найден")
+        
+        file_path = file_doc.get("file_path")
+        original_name = file_doc.get("original_name")
+        stored_name = file_doc.get("stored_name")
+        mime_type = file_doc.get("mime_type", "application/octet-stream")
+        
+        logger.info(f"Download file request: file_id={file_id}, file_path={file_path}, original_name={original_name}, stored_name={stored_name}")
+        
+        # Проверяем существование файла
+        if not os.path.exists(file_path):
+            logger.error(f"File not found at path: {file_path}")
+            logger.info(f"Current working directory: {os.getcwd()}")
+            logger.info(f"Absolute path would be: {os.path.abspath(file_path)}")
+            
+            # Пробуем альтернативный путь
+            alt_path = os.path.join(os.getcwd(), file_path)
+            if os.path.exists(alt_path):
+                logger.info(f"File found at alternative path: {alt_path}")
+                file_path = alt_path
+            else:
+                raise HTTPException(status_code=404, detail=f"Физический файл не найден: {file_path}")
+        
+        # Кодируем имя файла для поддержки кириллицы (RFC 5987)
+        from urllib.parse import quote
+        encoded_filename = quote(original_name)
+        
+        # Возвращаем файл с заголовком для скачивания
+        return FileResponse(
+            path=file_path,
+            filename=original_name,
+            media_type=mime_type,
+            headers={
+                "Content-Disposition": f"attachment; filename*=UTF-8''{encoded_filename}"
+            }
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error downloading file: {str(e)}")
+        logger.error(f"Traceback: {traceback.format_exc()}")
+        raise HTTPException(status_code=500, detail=f"Ошибка при скачивании файла: {str(e)}")
+
+@app_v2.post("/api/admin/upload-file")
+async def upload_file(
+    file: UploadFile = File(...),
+    lesson_id: str = Form(...),
+    section: str = Form(...),  # theory, exercises, challenge, quiz
+    file_type: str = Form(...),  # media, document
+    current_user: dict = Depends(get_current_user)
+):
+    """
+    Загрузка файла (медиа или документ)
+    
+    Ограничения:
+    - Документы (PDF, Word, Excel, txt): без ограничений
+    - Видео: до 2 ГБ
+    - Медиа (изображения): без ограничений
+    """
+    try:
+        # Проверка прав администратора
+        if not current_user.get('is_super_admin', False) and not current_user.get('is_admin', False):
+            raise HTTPException(status_code=403, detail="Недостаточно прав")
+        
+        # Проверка размера файла для видео
+        file_size = 0
+        content = await file.read()
+        file_size = len(content)
+        await file.seek(0)  # Возвращаем указатель в начало
+        
+        # Определяем тип файла по расширению
+        file_ext = file.filename.split('.')[-1].lower() if '.' in file.filename else ''
+        
+        # Проверка размера для видео (2 ГБ = 2 * 1024 * 1024 * 1024 байт)
+        video_extensions = ['mp4', 'avi', 'mov', 'wmv', 'flv', 'mkv', 'webm']
+        if file_ext in video_extensions and file_size > 2 * 1024 * 1024 * 1024:
+            raise HTTPException(status_code=413, detail="Размер видео не должен превышать 2 ГБ")
+        
+        # Создаем уникальное имя файла с защитой от конфликтов
+        file_id = str(uuid.uuid4())
+        
+        # Определяем папку для сохранения
+        upload_dir = "uploads/learning_v2"
+        os.makedirs(upload_dir, exist_ok=True)
+        
+        # Получаем оригинальное имя и расширение
+        original_name = file.filename
+        name_parts = os.path.splitext(original_name)
+        base_name = name_parts[0]
+        extension = name_parts[1]
+        
+        # Проверяем конфликты и добавляем суффикс при необходимости
+        safe_filename = original_name
+        file_path = os.path.join(upload_dir, safe_filename)
+        counter = 1
+        
+        while os.path.exists(file_path):
+            safe_filename = f"{base_name}({counter}){extension}"
+            file_path = os.path.join(upload_dir, safe_filename)
+            counter += 1
+        
+        # Сохраняем файл
+        with open(file_path, "wb") as f:
+            f.write(content)
+        
+        # Сохраняем метаданные в БД
+        file_metadata = {
+            "id": file_id,
+            "lesson_id": lesson_id,
+            "section": section,
+            "file_type": file_type,
+            "original_name": safe_filename,  # Используем финальное имя (с суффиксом при конфликте)
+            "stored_name": safe_filename,
+            "file_path": file_path,
+            "file_size": file_size,
+            "mime_type": file.content_type,
+            "extension": file_ext,
+            "uploaded_by": current_user.get('user_id', current_user.get('id', 'unknown')),
+            "uploaded_at": datetime.utcnow()
+        }
+        
+        await db.files.insert_one(file_metadata)
+        
+        logger.info(f"File uploaded: {file.filename} ({file_size} bytes) for lesson {lesson_id}, section {section}")
+        
+        return {
+            "message": "Файл успешно загружен",
+            "file_id": file_id,
+            "filename": file.filename,
+            "file_size": file_size,
+            "file_type": file_type
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error uploading file: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Ошибка при загрузке файла: {str(e)}")
+
+
+@app_v2.get("/api/admin/files")
+async def get_files(
+    lesson_id: str = None,
+    section: str = None,
+    file_type: str = None,
+    current_user: dict = Depends(get_current_user)
+):
+    """Получить список файлов с фильтрацией"""
+    try:
+        # Проверка прав администратора
+        if not current_user.get('is_super_admin', False) and not current_user.get('is_admin', False):
+            raise HTTPException(status_code=403, detail="Недостаточно прав")
+        
+        # Формируем фильтр
+        filter_query = {}
+        if lesson_id:
+            filter_query["lesson_id"] = lesson_id
+        if section:
+            filter_query["section"] = section
+        if file_type:
+            filter_query["file_type"] = file_type
+        
+        # Получаем файлы
+        files_cursor = db.files.find(filter_query).sort("uploaded_at", -1)
+        files = await files_cursor.to_list(length=None)
+        
+        # Форматируем данные
+        formatted_files = []
+        for file in files:
+            formatted_files.append({
+                "id": file.get("id"),
+                "lesson_id": file.get("lesson_id"),
+                "section": file.get("section"),
+                "file_type": file.get("file_type"),
+                "original_name": file.get("original_name"),
+                "stored_name": file.get("stored_name"),
+                "file_size": file.get("file_size"),
+                "mime_type": file.get("mime_type"),
+                "extension": file.get("extension"),
+                "uploaded_by": file.get("uploaded_by"),
+                "uploaded_at": file.get("uploaded_at").isoformat() if file.get("uploaded_at") else None,
+                "file_path": file.get("file_path")
+            })
+        
+        return {
+            "files": formatted_files,
+            "total": len(formatted_files)
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error getting files: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Ошибка при получении списка файлов: {str(e)}")
+
+
+@app_v2.delete("/api/admin/files/{file_id}")
+async def delete_file(
+    file_id: str,
+    current_user: dict = Depends(get_current_user)
+):
+    """Удалить файл"""
+    try:
+        # Проверка прав администратора
+        if not current_user.get('is_super_admin', False) and not current_user.get('is_admin', False):
+            raise HTTPException(status_code=403, detail="Недостаточно прав")
+        
+        # Находим файл в БД
+        file_metadata = await db.files.find_one({"id": file_id})
+        if not file_metadata:
+            raise HTTPException(status_code=404, detail="Файл не найден")
+        
+        # Удаляем физический файл
+        file_path = file_metadata.get("file_path")
+        if file_path and os.path.exists(file_path):
+            os.remove(file_path)
+            logger.info(f"Physical file deleted: {file_path}")
+        
+        # Удаляем метаданные из БД
+        await db.files.delete_one({"id": file_id})
+        
+        logger.info(f"File deleted: {file_id}")
+        
+        return {
+            "message": "Файл успешно удален",
+            "file_id": file_id
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error deleting file: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Ошибка при удалении файла: {str(e)}")
+
+
+@app_v2.get("/api/student/lesson-files/{lesson_id}")
+async def get_lesson_files_for_student(
+    lesson_id: str,
+    current_user: dict = Depends(get_current_user)
+):
+    """Получить список файлов урока для студента"""
+    try:
+        lesson = await db.lessons_v2.find_one({"id": lesson_id, "is_active": True})
+        if not lesson:
+            raise HTTPException(status_code=404, detail="Урок не найден или недоступен")
+
+        files_cursor = db.files.find({"lesson_id": lesson_id}).sort("uploaded_at", 1)
+        files = await files_cursor.to_list(length=None)
+
+        formatted_files = []
+        for file in files:
+            formatted_files.append({
+                "id": file.get("id"),
+                "lesson_id": file.get("lesson_id"),
+                "section": file.get("section"),
+                "file_type": file.get("file_type"),
+                "original_name": file.get("original_name"),
+                "stored_name": file.get("stored_name"),
+                "file_size": file.get("file_size"),
+                "mime_type": file.get("mime_type"),
+                "extension": file.get("extension"),
+                "uploaded_at": file.get("uploaded_at").isoformat() if file.get("uploaded_at") else None
+            })
+
+        return {
+            "lesson_id": lesson_id,
+            "lesson_title": lesson.get("title"),
+            "files": formatted_files,
+            "total": len(formatted_files)
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error getting lesson files for student: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Ошибка при получении файлов урока: {str(e)}")
+
+
+# ===== ENDPOINTS ДЛЯ АНАЛИТИКИ ФАЙЛОВ =====
+
+@app_v2.post("/api/student/file-analytics")
+async def track_file_action(
+    request: FileAnalyticsRequest,
+    current_user: dict = Depends(get_current_user)
+):
+    """Записать просмотр или скачивание файла"""
+    try:
+        user_id = current_user.get('user_id', current_user.get('id'))
+        
+        # Проверяем существование файла
+        file_doc = await db.files.find_one({"id": request.file_id})
+        if not file_doc:
+            raise HTTPException(status_code=404, detail="Файл не найден")
+        
+        # Создаем запись аналитики
+        analytics_id = str(uuid.uuid4())
+        analytics_data = {
+            "id": analytics_id,
+            "file_id": request.file_id,
+            "user_id": user_id,
+            "lesson_id": request.lesson_id,
+            "action": request.action,  # 'view' или 'download'
+            "file_name": file_doc.get("original_name"),
+            "file_type": file_doc.get("file_type"),
+            "mime_type": file_doc.get("mime_type"),
+            "created_at": datetime.utcnow()
+        }
+        
+        await db.file_analytics.insert_one(analytics_data)
+        
+        logger.info(f"File action tracked: {request.action} - file_id: {request.file_id}, user_id: {user_id}")
+        
+        return {
+            "message": "Действие записано",
+            "analytics_id": analytics_id
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error tracking file action: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Ошибка при записи действия: {str(e)}")
+
+
+@app_v2.post("/api/student/video-watch-time")
+async def track_video_watch_time(
+    request: VideoWatchTimeRequest,
+    current_user: dict = Depends(get_current_user)
+):
+    """Отслеживать время просмотра видео и начислять баллы (10 баллов за минуту)"""
+    try:
+        user_id = current_user.get('user_id', current_user.get('id'))
+        
+        # Проверяем существование файла
+        file_doc = await db.files.find_one({"id": request.file_id})
+        if not file_doc:
+            raise HTTPException(status_code=404, detail="Файл не найден")
+        
+        # Проверяем, что это видео
+        mime_type = file_doc.get("mime_type", "")
+        if not mime_type.startswith("video/"):
+            raise HTTPException(status_code=400, detail="Файл не является видео")
+        
+        # Вычисляем баллы (10 баллов за минуту)
+        points_earned = request.minutes_watched * 10
+        
+        # Обновляем или создаем запись о просмотре видео
+        existing_watch = await db.video_watch_time.find_one({
+            "file_id": request.file_id,
+            "user_id": user_id
+        })
+        
+        if existing_watch:
+            # Обновляем существующую запись
+            new_total_minutes = existing_watch.get("total_minutes", 0) + request.minutes_watched
+            new_total_points = new_total_minutes * 10
+            
+            await db.video_watch_time.update_one(
+                {"file_id": request.file_id, "user_id": user_id},
+                {
+                    "$set": {
+                        "total_minutes": new_total_minutes,
+                        "total_points": new_total_points,
+                        "last_updated": datetime.utcnow()
+                    }
+                }
+            )
+            
+            logger.info(f"Video watch time updated: file_id: {request.file_id}, user_id: {user_id}, total_minutes: {new_total_minutes}, total_points: {new_total_points}")
+            
+            return {
+                "message": "Время просмотра обновлено",
+                "total_minutes": new_total_minutes,
+                "total_points": new_total_points,
+                "points_earned": points_earned
+            }
+        else:
+            # Создаем новую запись
+            watch_id = str(uuid.uuid4())
+            watch_data = {
+                "id": watch_id,
+                "file_id": request.file_id,
+                "user_id": user_id,
+                "lesson_id": request.lesson_id,
+                "file_name": file_doc.get("original_name"),
+                "total_minutes": request.minutes_watched,
+                "total_points": points_earned,
+                "created_at": datetime.utcnow(),
+                "last_updated": datetime.utcnow()
+            }
+            
+            await db.video_watch_time.insert_one(watch_data)
+            
+            logger.info(f"Video watch time created: file_id: {request.file_id}, user_id: {user_id}, minutes: {request.minutes_watched}, points: {points_earned}")
+            
+            return {
+                "message": "Время просмотра записано",
+                "total_minutes": request.minutes_watched,
+                "total_points": points_earned,
+                "points_earned": points_earned
+            }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error tracking video watch time: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Ошибка при записи времени просмотра: {str(e)}")
+
+
+@app_v2.get("/api/admin/file-analytics/{file_id}")
+async def get_file_analytics(
+    file_id: str,
+    current_user: dict = Depends(get_current_user)
+):
+    """Получить аналитику по конкретному файлу"""
+    try:
+        # Проверка прав администратора
+        if not current_user.get('is_super_admin', False) and not current_user.get('is_admin', False):
+            raise HTTPException(status_code=403, detail="Недостаточно прав")
+        
+        # Получаем информацию о файле
+        file_doc = await db.files.find_one({"id": file_id})
+        if not file_doc:
+            raise HTTPException(status_code=404, detail="Файл не найден")
+        
+        # Получаем все действия с файлом
+        analytics_cursor = db.file_analytics.find({"file_id": file_id}).sort("created_at", -1)
+        analytics = await analytics_cursor.to_list(length=None)
+        
+        # Подсчитываем статистику
+        total_views = sum(1 for a in analytics if a.get("action") == "view")
+        total_downloads = sum(1 for a in analytics if a.get("action") == "download")
+        unique_viewers = len(set(a.get("user_id") for a in analytics if a.get("action") == "view"))
+        unique_downloaders = len(set(a.get("user_id") for a in analytics if a.get("action") == "download"))
+        
+        # Получаем информацию о пользователях
+        user_actions = {}
+        for action in analytics:
+            user_id = action.get("user_id")
+            if user_id not in user_actions:
+                # Получаем имя пользователя
+                user_doc = await db.users.find_one({"_id": user_id})
+                username = user_doc.get("username", "Неизвестный") if user_doc else "Неизвестный"
+                
+                user_actions[user_id] = {
+                    "user_id": user_id,
+                    "username": username,
+                    "views": 0,
+                    "downloads": 0,
+                    "last_action": None
+                }
+            
+            if action.get("action") == "view":
+                user_actions[user_id]["views"] += 1
+            elif action.get("action") == "download":
+                user_actions[user_id]["downloads"] += 1
+            
+            if not user_actions[user_id]["last_action"]:
+                user_actions[user_id]["last_action"] = action.get("created_at").isoformat() if action.get("created_at") else None
+        
+        # Получаем статистику просмотра видео (если это видео)
+        video_stats = None
+        if file_doc.get("mime_type", "").startswith("video/"):
+            video_watch_cursor = db.video_watch_time.find({"file_id": file_id})
+            video_watches = await video_watch_cursor.to_list(length=None)
+            
+            total_watch_minutes = sum(v.get("total_minutes", 0) for v in video_watches)
+            total_points_earned = sum(v.get("total_points", 0) for v in video_watches)
+            unique_watchers = len(video_watches)
+            
+            video_stats = {
+                "total_watch_minutes": total_watch_minutes,
+                "total_points_earned": total_points_earned,
+                "unique_watchers": unique_watchers,
+                "avg_watch_minutes": round(total_watch_minutes / unique_watchers, 2) if unique_watchers > 0 else 0
+            }
+        
+        return {
+            "file_id": file_id,
+            "file_name": file_doc.get("original_name"),
+            "file_type": file_doc.get("file_type"),
+            "mime_type": file_doc.get("mime_type"),
+            "statistics": {
+                "total_views": total_views,
+                "total_downloads": total_downloads,
+                "unique_viewers": unique_viewers,
+                "unique_downloaders": unique_downloaders
+            },
+            "user_actions": list(user_actions.values()),
+            "video_stats": video_stats
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error getting file analytics: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Ошибка при получении аналитики: {str(e)}")
+
+
+@app_v2.get("/api/student/my-files-stats/{lesson_id}")
+async def get_student_files_stats(
+    lesson_id: str,
+    current_user: dict = Depends(get_current_user)
+):
+    """Получить статистику файлов студента для урока"""
+    try:
+        user_id = current_user.get('user_id')
+        
+        # Получаем все файлы урока
+        files_cursor = db.files.find({"lesson_id": lesson_id})
+        files = await files_cursor.to_list(length=None)
+        
+        # Получаем аналитику студента по файлам
+        analytics_cursor = db.file_analytics.find({
+            "lesson_id": lesson_id,
+            "user_id": user_id
+        })
+        analytics = await analytics_cursor.to_list(length=None)
+        
+        # Получаем статистику просмотра видео
+        video_stats_cursor = db.video_watch_time.find({
+            "lesson_id": lesson_id,
+            "user_id": user_id
+        })
+        video_stats = await video_stats_cursor.to_list(length=None)
+        
+        # Группируем по файлам
+        files_data = []
+        total_views = 0
+        total_downloads = 0
+        total_video_minutes = 0
+        total_video_points = 0
+        
+        for file_doc in files:
+            file_id = file_doc.get("id")
+            
+            # Подсчет просмотров и скачиваний
+            file_views = sum(1 for a in analytics if a.get("file_id") == file_id and a.get("action") == "view")
+            file_downloads = sum(1 for a in analytics if a.get("file_id") == file_id and a.get("action") == "download")
+            
+            total_views += file_views
+            total_downloads += file_downloads
+            
+            # Статистика видео
+            video_data = None
+            if file_doc.get("mime_type", "").startswith("video/"):
+                video_stat = next((v for v in video_stats if v.get("file_id") == file_id), None)
+                if video_stat:
+                    minutes = video_stat.get("total_minutes", 0)
+                    points = video_stat.get("total_points", 0)
+                    total_video_minutes += minutes
+                    total_video_points += points
+                    video_data = {
+                        "minutes_watched": minutes,
+                        "points_earned": points
+                    }
+            
+            files_data.append({
+                "file_id": file_id,
+                "file_name": file_doc.get("original_name"),
+                "file_type": file_doc.get("file_type"),
+                "section": file_doc.get("section"),
+                "mime_type": file_doc.get("mime_type"),
+                "views": file_views,
+                "downloads": file_downloads,
+                "video_stats": video_data
+            })
+        
+        return {
+            "files": files_data,
+            "summary": {
+                "total_files": len(files),
+                "total_views": total_views,
+                "total_downloads": total_downloads,
+                "total_video_minutes": total_video_minutes,
+                "total_video_points": total_video_points
+            }
+        }
+    except Exception as e:
+        logger.error(f"Error getting student files stats: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Ошибка при получении статистики: {str(e)}")
+
+
+@app_v2.get("/api/admin/lesson-files-analytics/{lesson_id}")
+async def get_lesson_files_analytics(
+    lesson_id: str,
+    current_user: dict = Depends(get_current_user)
+):
+    """Получить аналитику по всем файлам урока"""
+    try:
+        # Проверка прав администратора
+        if not current_user.get('is_super_admin', False) and not current_user.get('is_admin', False):
+            raise HTTPException(status_code=403, detail="Недостаточно прав")
+        
+        # Получаем все файлы урока
+        files_cursor = db.files.find({"lesson_id": lesson_id})
+        files = await files_cursor.to_list(length=None)
+        
+        files_analytics = []
+        
+        for file_doc in files:
+            file_id = file_doc.get("id")
+            
+            # Получаем аналитику по файлу
+            analytics_cursor = db.file_analytics.find({"file_id": file_id})
+            analytics = await analytics_cursor.to_list(length=None)
+            
+            total_views = sum(1 for a in analytics if a.get("action") == "view")
+            total_downloads = sum(1 for a in analytics if a.get("action") == "download")
+            unique_users = len(set(a.get("user_id") for a in analytics))
+            
+            # Статистика видео (если применимо)
+            video_stats = None
+            if file_doc.get("mime_type", "").startswith("video/"):
+                video_watch_cursor = db.video_watch_time.find({"file_id": file_id})
+                video_watches = await video_watch_cursor.to_list(length=None)
+                
+                total_watch_minutes = sum(v.get("total_minutes", 0) for v in video_watches)
+                total_points = sum(v.get("total_points", 0) for v in video_watches)
+                
+                video_stats = {
+                    "total_watch_minutes": total_watch_minutes,
+                    "total_points_earned": total_points,
+                    "unique_watchers": len(video_watches)
+                }
+            
+            files_analytics.append({
+                "file_id": file_id,
+                "file_name": file_doc.get("original_name"),
+                "file_type": file_doc.get("file_type"),
+                "section": file_doc.get("section"),
+                "mime_type": file_doc.get("mime_type"),
+                "total_views": total_views,
+                "total_downloads": total_downloads,
+                "unique_users": unique_users,
+                "video_stats": video_stats
+            })
+        
+        return {
+            "lesson_id": lesson_id,
+            "total_files": len(files),
+            "files": files_analytics
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error getting lesson files analytics: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Ошибка при получении аналитики урока: {str(e)}")
+
+
+@app_v2.get("/api/student/dashboard-stats")
+async def get_student_dashboard_stats(
+    current_user: dict = Depends(get_current_user)
+):
+    """
+    Получить общую статистику студента для дашборда:
+    - Общие баллы (челленджи, тесты, время обучения)
+    - Прогресс по урокам
+    - Достижения
+    - Активность
+    """
+    try:
+        user_id = current_user['user_id']
+        
+        # 1. Получаем все уроки
+        lessons = await db['lessons_v2'].find().to_list(length=None)
+        total_lessons = len(lessons)
+        
+        # 2. Получаем прогресс по урокам
+        lesson_progress = await db['lesson_progress'].find({'user_id': user_id}).to_list(length=None)
+        completed_lessons = len([p for p in lesson_progress if p.get('is_completed', False)])
+        
+        # 3. Считаем общие баллы
+        # Баллы за челленджи
+        challenge_attempts = await db['challenge_progress'].find({'user_id': user_id}).to_list(length=None)
+        total_challenge_points = sum(attempt.get('points_earned', 0) for attempt in challenge_attempts)
+        total_challenge_attempts = len(challenge_attempts)
+        
+        # Баллы за тесты
+        quiz_attempts = await db['quiz_attempts'].find({'user_id': user_id}).to_list(length=None)
+        total_quiz_points = sum(attempt.get('points_earned', 0) for attempt in quiz_attempts)
+        total_quiz_attempts = len(quiz_attempts)
+        
+        # Баллы за время обучения (из time_activity)
+        time_activity_records = await db['time_activity'].find({'user_id': user_id}).to_list(length=None)
+        total_time_points = sum(record.get('total_points', 0) for record in time_activity_records)
+        total_time_minutes = sum(record.get('total_minutes', 0) for record in time_activity_records)
+        
+        # Баллы за просмотр видео
+        video_watch_records = await db['video_watch_time'].find({'user_id': user_id}).to_list(length=None)
+        total_video_points = sum(record.get('total_points', 0) for record in video_watch_records)
+        total_video_minutes = sum(record.get('total_minutes', 0) for record in video_watch_records)
+        
+        # Общие баллы
+        total_points = total_challenge_points + total_quiz_points + total_time_points + total_video_points
+        
+        # 4. Считаем упражнения
+        exercise_responses = await db['exercise_responses'].find({'user_id': user_id}).to_list(length=None)
+        total_exercises_completed = len(exercise_responses)
+        
+        # 5. Считаем файлы
+        file_views = await db['file_analytics'].count_documents({'user_id': user_id, 'action': 'view'})
+        file_downloads = await db['file_analytics'].count_documents({'user_id': user_id, 'action': 'download'})
+        
+        # 6. Активность по дням (последние 30 дней)
+        from datetime import datetime, timedelta
+        thirty_days_ago = datetime.utcnow() - timedelta(days=30)
+        
+        # Собираем активность из разных источников
+        recent_challenges = await db['challenge_progress'].count_documents({
+            'user_id': user_id,
+            'completed_at': {'$gte': thirty_days_ago}
+        })
+        
+        recent_quizzes = await db['quiz_attempts'].count_documents({
+            'user_id': user_id,
+            'attempted_at': {'$gte': thirty_days_ago}
+        })
+        
+        recent_exercises = await db['exercise_responses'].count_documents({
+            'user_id': user_id,
+            'submitted_at': {'$gte': thirty_days_ago}
+        })
+        
+        # 7. Определяем уровень студента на основе баллов
+        level = 1
+        level_name = "Новичок"
+        next_level_points = 100
+        
+        if total_points >= 1000:
+            level = 5
+            level_name = "Мастер"
+            next_level_points = 2000
+        elif total_points >= 500:
+            level = 4
+            level_name = "Эксперт"
+            next_level_points = 1000
+        elif total_points >= 250:
+            level = 3
+            level_name = "Продвинутый"
+            next_level_points = 500
+        elif total_points >= 100:
+            level = 2
+            level_name = "Ученик"
+            next_level_points = 250
+        
+        # 8. Достижения (бейджи)
+        achievements = []
+        
+        # Первый урок
+        if completed_lessons >= 1:
+            achievements.append({
+                'id': 'first_lesson',
+                'title': 'Первый шаг',
+                'description': 'Завершен первый урок',
+                'icon': '🎯',
+                'earned': True
+            })
+        
+        # 5 уроков
+        if completed_lessons >= 5:
+            achievements.append({
+                'id': 'five_lessons',
+                'title': 'Упорный ученик',
+                'description': 'Завершено 5 уроков',
+                'icon': '📚',
+                'earned': True
+            })
+        
+        # 10 уроков
+        if completed_lessons >= 10:
+            achievements.append({
+                'id': 'ten_lessons',
+                'title': 'Знаток',
+                'description': 'Завершено 10 уроков',
+                'icon': '🏆',
+                'earned': True
+            })
+        
+        # Первый челлендж
+        if total_challenge_attempts >= 1:
+            achievements.append({
+                'id': 'first_challenge',
+                'title': 'Принял вызов',
+                'description': 'Завершен первый челлендж',
+                'icon': '⚡',
+                'earned': True
+            })
+        
+        # 100 баллов
+        if total_points >= 100:
+            achievements.append({
+                'id': 'hundred_points',
+                'title': 'Сотня',
+                'description': 'Заработано 100 баллов',
+                'icon': '💯',
+                'earned': True
+            })
+        
+        # 500 баллов
+        if total_points >= 500:
+            achievements.append({
+                'id': 'five_hundred_points',
+                'title': 'Коллекционер',
+                'description': 'Заработано 500 баллов',
+                'icon': '💎',
+                'earned': True
+            })
+        
+        # 1000 баллов
+        if total_points >= 1000:
+            achievements.append({
+                'id': 'thousand_points',
+                'title': 'Легенда',
+                'description': 'Заработано 1000 баллов',
+                'icon': '👑',
+                'earned': True
+            })
+        
+        # Активный ученик (активность в последние 7 дней)
+        seven_days_ago = datetime.utcnow() - timedelta(days=7)
+        recent_challenge_count = await db['challenge_progress'].count_documents({
+            'user_id': user_id,
+            'completed_at': {'$gte': seven_days_ago}
+        })
+        recent_quiz_count = await db['quiz_attempts'].count_documents({
+            'user_id': user_id,
+            'attempted_at': {'$gte': seven_days_ago}
+        })
+        recent_exercise_count = await db['exercise_responses'].count_documents({
+            'user_id': user_id,
+            'submitted_at': {'$gte': seven_days_ago}
+        })
+        recent_activity = recent_challenge_count + recent_quiz_count + recent_exercise_count
+        
+        if recent_activity >= 5:
+            achievements.append({
+                'id': 'active_learner',
+                'title': 'Активный ученик',
+                'description': '5+ активностей за неделю',
+                'icon': '🔥',
+                'earned': True
+            })
+        
+        # 9. График активности (последние 7 дней)
+        activity_chart = []
+        for i in range(7):
+            day = datetime.utcnow() - timedelta(days=6-i)
+            day_start = day.replace(hour=0, minute=0, second=0, microsecond=0)
+            day_end = day_start + timedelta(days=1)
+            
+            day_challenge_count = await db['challenge_progress'].count_documents({
+                'user_id': user_id,
+                'completed_at': {'$gte': day_start, '$lt': day_end}
+            })
+            day_quiz_count = await db['quiz_attempts'].count_documents({
+                'user_id': user_id,
+                'attempted_at': {'$gte': day_start, '$lt': day_end}
+            })
+            day_exercise_count = await db['exercise_responses'].count_documents({
+                'user_id': user_id,
+                'submitted_at': {'$gte': day_start, '$lt': day_end}
+            })
+            day_activity = day_challenge_count + day_quiz_count + day_exercise_count
+            
+            activity_chart.append({
+                'date': day.strftime('%d.%m'),
+                'day_name': ['Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб', 'Вс'][day.weekday()],
+                'activity': day_activity
+            })
+        
+        # 10. Последние достижения (последние 5)
+        recent_achievements = []
+        
+        # Последние завершенные уроки
+        recent_lesson_progress = await db['lesson_progress'].find(
+            {'user_id': user_id, 'is_completed': True}
+        ).sort('completed_at', -1).limit(3).to_list(length=3)
+        
+        for progress in recent_lesson_progress:
+            lesson = await db['lessons_v2'].find_one({'_id': progress['lesson_id']})
+            if lesson:
+                recent_achievements.append({
+                    'type': 'lesson',
+                    'title': f"Урок завершен: {lesson['title']}",
+                    'date': progress.get('completed_at', datetime.utcnow()).strftime('%d.%m.%Y'),
+                    'icon': '✅'
+                })
+        
+        # Последние челленджи
+        recent_challenge_attempts = await db['challenge_progress'].find(
+            {'user_id': user_id}
+        ).sort('completed_at', -1).limit(2).to_list(length=2)
+        
+        for attempt in recent_challenge_attempts:
+            lesson = await db['lessons_v2'].find_one({'_id': attempt['lesson_id']})
+            if lesson:
+                recent_achievements.append({
+                    'type': 'challenge',
+                    'title': f"Челлендж: {lesson['title']} (+{attempt.get('points_earned', 0)} баллов)",
+                    'date': attempt.get('completed_at', datetime.utcnow()).strftime('%d.%m.%Y'),
+                    'icon': '⚡'
+                })
+        
+        # Сортируем по дате и берем последние 5
+        recent_achievements = sorted(
+            recent_achievements,
+            key=lambda x: x['date'],
+            reverse=True
+        )[:5]
+        
+        return {
+            'success': True,
+            'stats': {
+                # Общая информация
+                'total_points': total_points,
+                'level': level,
+                'level_name': level_name,
+                'next_level_points': next_level_points,
+                'progress_to_next_level': min(100, int((total_points / next_level_points) * 100)),
+                
+                # Для обратной совместимости с frontend
+                'total_lessons': total_lessons,
+                'completed_lessons': completed_lessons,
+                'total_challenge_attempts': total_challenge_attempts,
+                'total_challenge_points': total_challenge_points,
+                'total_quiz_attempts': total_quiz_attempts,
+                'total_quiz_points': total_quiz_points,
+                'total_exercises_completed': total_exercises_completed,
+                
+                # Баллы по категориям
+                'points_breakdown': {
+                    'challenges': total_challenge_points,
+                    'quizzes': total_quiz_points,
+                    'time': total_time_points,
+                    'time_minutes': total_time_minutes,
+                    'videos': total_video_points,
+                    'video_minutes': total_video_minutes
+                },
+                
+                # Прогресс по урокам
+                'lessons': {
+                    'total': total_lessons,
+                    'completed': completed_lessons,
+                    'in_progress': len(lesson_progress) - completed_lessons,
+                    'completion_percentage': int((completed_lessons / total_lessons * 100)) if total_lessons > 0 else 0
+                },
+                
+                # Активность
+                'activity': {
+                    'total_challenges': total_challenge_attempts,
+                    'total_quizzes': total_quiz_attempts,
+                    'total_exercises': total_exercises_completed,
+                    'total_time_minutes': total_time_minutes,
+                    'total_video_minutes': total_video_minutes,
+                    'recent_challenges': recent_challenges,
+                    'recent_quizzes': recent_quizzes,
+                    'recent_exercises': recent_exercises,
+                    'file_views': file_views,
+                    'file_downloads': file_downloads
+                },
+                
+                # Достижения
+                'achievements': achievements,
+                'total_achievements': len(achievements),
+                
+                # График активности
+                'activity_chart': activity_chart,
+                
+                # Последние достижения
+                'recent_achievements': recent_achievements
+            }
+        }
+        
+    except Exception as e:
+        logger.error(f"Error getting student dashboard stats: {str(e)}")
+        logger.error(traceback.format_exc())
+        raise HTTPException(status_code=500, detail=f"Ошибка при получении статистики: {str(e)}")
 
 
 if __name__ == "__main__":

@@ -17,9 +17,8 @@ export const AuthProvider = ({ children }) => {
   const [loading, setLoading] = useState(true);
   const [isInitialized, setIsInitialized] = useState(false);
 
-  // Используем отдельный URL для автономного проекта V2
-  const backendUrl = "http://localhost:8000";
-  const apiBaseUrl = "http://localhost:8000/api";
+  const backendUrl = getBackendUrl();
+  const apiBaseUrl = getApiBaseUrl();
 
   useEffect(() => {
     let mounted = true;
@@ -30,27 +29,37 @@ export const AuthProvider = ({ children }) => {
 
       try {
         if (token && mounted) {
-          console.log('AuthContextV2: токен есть, проверяем его валидность');
-          // Для V2 системы просто проверяем, что токен существует
-          // Не делаем запросы к API, которых нет
-          setUser({
-            email: 'user@v2.learning',
-            is_super_admin: true,
-            id: 'test_user_v2'
+          console.log('AuthContextV2: токен есть, запрашиваем профиль пользователя');
+          const profileResponse = await fetch(`${apiBaseUrl}/user/profile`, {
+            headers: {
+              'Authorization': `Bearer ${token}`
+            }
           });
-          setIsInitialized(true);
+
+          if (!profileResponse.ok) {
+            throw new Error(`Profile request failed with status ${profileResponse.status}`);
+          }
+
+          const profile = await profileResponse.json();
+          if (mounted) {
+            setUser(profile);
+            setIsInitialized(true);
+          }
         } else {
           console.log('AuthContextV2: токен отсутствует');
-          setUser(null);
-          setIsInitialized(true);
+          if (mounted) {
+            setUser(null);
+            setIsInitialized(true);
+          }
         }
       } catch (error) {
         console.error('AuthContextV2: ошибка инициализации:', error);
-        // В случае ошибки просто сбрасываем состояние
-        setUser(null);
-        setToken(null);
-        localStorage.removeItem('token');
-        setIsInitialized(true);
+        if (mounted) {
+          setUser(null);
+          setToken(null);
+          localStorage.removeItem('token');
+          setIsInitialized(true);
+        }
       } finally {
         if (mounted) {
           setLoading(false);
@@ -63,7 +72,7 @@ export const AuthProvider = ({ children }) => {
     return () => {
       mounted = false;
     };
-  }, [token]);
+  }, [token, apiBaseUrl]);
 
   const login = async (email, password) => {
     console.log('=== НАЧАЛО ПРОЦЕССА ВХОДА V2 ===');
@@ -130,31 +139,8 @@ export const AuthProvider = ({ children }) => {
   };
 
   const register = async (userData) => {
-    try {
-      const response = await fetch(`${apiBaseUrl}/auth/register`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify(userData)
-      });
-
-      if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
-      }
-
-      const data = await response.json();
-      const { access_token, user: newUser } = data;
-
-      localStorage.setItem('token', access_token);
-      setToken(access_token);
-      setUser(newUser);
-
-      return { success: true };
-    } catch (error) {
-      console.error('Ошибка регистрации:', error);
-      throw error;
-    }
+    console.warn('Регистрация в автономной системе обучения V2 отключена.');
+    throw new Error('Регистрация недоступна. Обратитесь к администратору.');
   };
 
   const isAuthenticated = !!user && !!token;

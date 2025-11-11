@@ -9,13 +9,13 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, Di
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
 import { Textarea } from './ui/textarea';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from './ui/tabs';
-import { Brain, Upload, FileText, BookOpen, Users, Settings, Edit, Save, X, Plus, Trash2, ChevronDown, ChevronUp } from 'lucide-react';
+import { Brain, Upload, FileText, BookOpen, Users, Settings, Edit, Save, X, Plus, Trash2, ChevronDown, ChevronUp, BarChart3, Award, Zap, Target, Activity, ClipboardList } from 'lucide-react';
 import { useAuth } from './AuthContextV2';
 import { getBackendUrl } from '../utils/backendUrl';
 import LessonEditModal from './LessonEditModal';
 
 const AdminPanelV2 = () => {
-  const { user } = useAuth();
+  const { user, loading: authLoading } = useAuth();
   const [activeTab, setActiveTab] = useState('lessons-v2');
   const [lessonsV2, setLessonsV2] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -27,15 +27,116 @@ const AdminPanelV2 = () => {
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [lessonToDelete, setLessonToDelete] = useState(null);
   const [deletingLesson, setDeletingLesson] = useState(false);
+  const [filesStats, setFilesStats] = useState({}); // Статистика файлов по урокам
+  const [dashboardStats, setDashboardStats] = useState(null);
+  const [dashboardLoading, setDashboardLoading] = useState(false);
+  const [dashboardError, setDashboardError] = useState('');
+  const [pendingReviews, setPendingReviews] = useState([]);
+  const [reviewNotes, setReviewNotes] = useState({});
+  const [reviewSavingState, setReviewSavingState] = useState({});
 
   // Используем отдельный URL для автономного проекта V2
   const backendUrl = "http://localhost:8000";
 
+  const formatDateTime = (value) => {
+    if (!value) return 'Дата неизвестна';
+    try {
+      return new Date(value).toLocaleString('ru-RU', {
+        day: '2-digit',
+        month: 'short',
+        hour: '2-digit',
+        minute: '2-digit'
+      });
+    } catch (error) {
+      return value;
+    }
+  };
+
   useEffect(() => {
     if (activeTab === 'lessons-v2') {
+      loadDashboardOverview();
       loadLessonsV2();
     }
   }, [activeTab]);
+
+  const loadDashboardOverview = async () => {
+    try {
+      setDashboardLoading(true);
+      setDashboardError('');
+      const response = await fetch(`${backendUrl}/api/admin/analytics/overview`, {
+        headers: {
+          'Authorization': `Bearer ${localStorage.getItem('token')}`,
+          'Content-Type': 'application/json'
+        }
+      });
+
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+
+      const data = await response.json();
+      setDashboardStats(data);
+      setPendingReviews(data.pending_reviews_details || []);
+      setReviewNotes({});
+    } catch (error) {
+      console.error('Error loading dashboard overview:', error);
+      setDashboardError('Не удалось загрузить дашборд. Попробуйте обновить страницу.');
+    } finally {
+      setDashboardLoading(false);
+    }
+  };
+
+  const handleReviewNoteChange = (responseId, value) => {
+    setReviewNotes(prev => ({
+      ...prev,
+      [responseId]: value
+    }));
+  };
+
+  const submitReviewResponse = async (responseId) => {
+    const comment = (reviewNotes[responseId] || '').trim();
+    if (!comment) {
+      alert('Введите комментарий перед отправкой ответа студенту.');
+      return;
+    }
+
+    try {
+      setReviewSavingState(prev => ({ ...prev, [responseId]: true }));
+      const response = await fetch(`${backendUrl}/api/admin/review-response/${responseId}`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${localStorage.getItem('token')}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ admin_comment: comment })
+      });
+
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+
+      setPendingReviews(prev => prev.filter(item => item.response_id !== responseId));
+      setReviewNotes(prev => {
+        const updated = { ...prev };
+        delete updated[responseId];
+        return updated;
+      });
+      setDashboardStats(prev => prev ? {
+        ...prev,
+        pending_reviews: Math.max((prev.pending_reviews || 1) - 1, 0),
+        pending_reviews_details: prev.pending_reviews_details
+          ? prev.pending_reviews_details.filter(item => item.response_id !== responseId)
+          : prev.pending_reviews_details
+      } : prev);
+
+      alert('Комментарий отправлен. Ответ помечен как проверенный.');
+    } catch (error) {
+      console.error('Error reviewing response:', error);
+      alert('Не удалось отправить комментарий. Попробуйте ещё раз.');
+    } finally {
+      setReviewSavingState(prev => ({ ...prev, [responseId]: false }));
+    }
+  };
 
   const loadLessonsV2 = async () => {
     try {
@@ -53,11 +154,56 @@ const AdminPanelV2 = () => {
 
       const data = await response.json();
       setLessonsV2(data.lessons);
+      
+      // Загружаем статистику файлов для каждого урока
+      await loadFilesStats(data.lessons);
     } catch (error) {
       console.error('Error loading lessons V2:', error);
       alert('Ошибка загрузки уроков V2');
     } finally {
       setLoading(false);
+    }
+  };
+
+  const loadFilesStats = async (lessons) => {
+    try {
+      const stats = {};
+      
+      // Загружаем статистику для каждого урока параллельно
+      await Promise.all(
+        lessons.map(async (lesson) => {
+          try {
+            const response = await fetch(
+              `${backendUrl}/api/admin/files?lesson_id=${lesson.id}`,
+              {
+                headers: {
+                  'Authorization': `Bearer ${localStorage.getItem('token')}`,
+                  'Content-Type': 'application/json'
+                }
+              }
+            );
+            
+            if (response.ok) {
+              const data = await response.json();
+              const mediaCount = data.files.filter(f => f.file_type === 'media').length;
+              const docCount = data.files.filter(f => f.file_type === 'document').length;
+              
+              stats[lesson.id] = {
+                media: mediaCount,
+                documents: docCount,
+                total: data.total
+              };
+            }
+          } catch (error) {
+            console.error(`Error loading files for lesson ${lesson.id}:`, error);
+            stats[lesson.id] = { media: 0, documents: 0, total: 0 };
+          }
+        })
+      );
+      
+      setFilesStats(stats);
+    } catch (error) {
+      console.error('Error loading files stats:', error);
     }
   };
 
@@ -181,8 +327,287 @@ const AdminPanelV2 = () => {
     }
   };
 
+  if (authLoading) {
+    return (
+      <div className="container mx-auto px-4 py-16">
+        <div className="flex flex-col items-center gap-3 text-gray-600">
+          <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-blue-600"></div>
+          <p>Загрузка данных пользователя...</p>
+        </div>
+      </div>
+    );
+  }
+
+  const isAdminUser = user?.is_super_admin || user?.is_admin;
+
+  if (!isAdminUser) {
+    return (
+      <div className="container mx-auto px-4 py-16">
+        <Card className="max-w-2xl mx-auto bg-white border border-red-200 shadow-sm">
+          <CardHeader>
+            <CardTitle className="text-red-600 flex items-center gap-2">
+              <Trash2 className="w-5 h-5" />
+              Доступ ограничен
+            </CardTitle>
+            <CardDescription className="text-gray-600">
+              Панель администратора доступна только уполномоченным пользователям. Вы вошли как студент.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            <p className="text-sm text-gray-600">
+              Если вы считаете, что это ошибка, обратитесь к суперадминистратору для получения прав доступа.
+            </p>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
+
   const renderLessonsV2Tab = () => (
     <div className="space-y-6">
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <BarChart3 className="w-5 h-5 text-indigo-600" />
+            Дашборд администратора
+          </CardTitle>
+          <CardDescription>
+            Ключевые метрики по системе обучения и контроль домашних заданий
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-6">
+          {dashboardLoading ? (
+            <div className="flex items-center justify-center py-8">
+              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-indigo-600 mr-3"></div>
+              <p className="text-indigo-700 font-medium">Загрузка аналитики...</p>
+            </div>
+          ) : dashboardError ? (
+            <div className="bg-red-50 border border-red-200 text-red-700 rounded-lg p-4 text-sm">
+              {dashboardError}
+            </div>
+          ) : dashboardStats ? (
+            <>
+              <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
+                <div className="bg-blue-50 border border-blue-100 rounded-xl p-5 shadow-sm">
+                  <div className="flex items-center justify-between mb-3">
+                    <div className="p-3 bg-blue-100 rounded-lg">
+                      <Users className="w-6 h-6 text-blue-600" />
+                    </div>
+                    <Badge variant="outline" className="text-xs bg-blue-100 text-blue-700 border-blue-200">
+                      Студенты
+                    </Badge>
+                  </div>
+                  <p className="text-3xl font-bold text-blue-700">{dashboardStats.total_students || 0}</p>
+                  <p className="text-sm text-blue-900 mt-1">Всего студентов в системе</p>
+                </div>
+
+                <div className="bg-emerald-50 border border-emerald-100 rounded-xl p-5 shadow-sm">
+                  <div className="flex items-center justify-between mb-3">
+                    <div className="p-3 bg-emerald-100 rounded-lg">
+                      <BookOpen className="w-6 h-6 text-emerald-600" />
+                    </div>
+                    <Badge variant="outline" className="text-xs bg-emerald-100 text-emerald-700 border-emerald-200">
+                      Уроки
+                    </Badge>
+                  </div>
+                  <p className="text-3xl font-bold text-emerald-700">{dashboardStats.total_lessons || 0}</p>
+                  <p className="text-sm text-emerald-900 mt-1">
+                    Активных уроков в системе
+                  </p>
+                </div>
+
+                <div className="bg-yellow-50 border border-yellow-100 rounded-xl p-5 shadow-sm">
+                  <div className="flex items-center justify-between mb-3">
+                    <div className="p-3 bg-yellow-100 rounded-lg">
+                      <Award className="w-6 h-6 text-yellow-600" />
+                    </div>
+                    <Badge variant="outline" className="text-xs bg-yellow-100 text-yellow-700 border-yellow-200">
+                      Баллы
+                    </Badge>
+                  </div>
+                  <p className="text-3xl font-bold text-yellow-600">{dashboardStats.points?.total || 0}</p>
+                  <p className="text-sm text-yellow-700 mt-1">
+                    Баллов начислено студентам
+                  </p>
+                </div>
+
+              <div className="bg-rose-50 border border-rose-100 rounded-xl p-5 shadow-sm">
+                  <div className="flex items-center justify-between mb-3">
+                    <div className="p-3 bg-rose-100 rounded-lg">
+                      <ClipboardList className="w-6 h-6 text-rose-600" />
+                    </div>
+                    <Badge variant="destructive" className="text-xs">
+                      Проверить
+                    </Badge>
+                  </div>
+                  <p className="text-3xl font-bold text-rose-600">{dashboardStats.pending_reviews || 0}</p>
+                  <p className="text-sm text-rose-700 mt-1">
+                    Непроверенных домашних заданий
+                  </p>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+                <Card className="col-span-1 lg:col-span-2 border border-indigo-100 shadow-sm">
+                  <CardHeader>
+                    <CardTitle className="flex items-center gap-2 text-indigo-700">
+                      <Zap className="w-5 h-5" />
+                      Разбивка начисленных баллов
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
+                      <div className="bg-purple-50 rounded-lg p-4 border border-purple-100">
+                        <p className="text-xs uppercase tracking-wide text-purple-600 mb-1">Челленджи</p>
+                        <p className="text-2xl font-bold text-purple-700">{dashboardStats.points?.challenges || 0}</p>
+                      </div>
+                      <div className="bg-green-50 rounded-lg p-4 border border-green-100">
+                        <p className="text-xs uppercase tracking-wide text-green-600 mb-1">Тесты</p>
+                        <p className="text-2xl font-bold text-green-700">{dashboardStats.points?.quizzes || 0}</p>
+                      </div>
+                      <div className="bg-sky-50 rounded-lg p-4 border border-sky-100">
+                        <p className="text-xs uppercase tracking-wide text-sky-600 mb-1">Время</p>
+                        <p className="text-2xl font-bold text-sky-700">{dashboardStats.points?.time || 0}</p>
+                      </div>
+                      <div className="bg-orange-50 rounded-lg p-4 border border-orange-100">
+                        <p className="text-xs uppercase tracking-wide text-orange-600 mb-1">Видео</p>
+                        <p className="text-2xl font-bold text-orange-700">{dashboardStats.points?.videos || 0}</p>
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+
+                <Card className="border border-blue-100 shadow-sm">
+                  <CardHeader>
+                    <CardTitle className="flex items-center gap-2 text-blue-700">
+                      <Activity className="w-5 h-5" />
+                      Активность
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent className="space-y-4">
+                    <div className="bg-blue-50 rounded-lg p-4 border border-blue-100">
+                      <p className="text-xs uppercase tracking-wide text-blue-600 mb-1">Активность за 7 дней</p>
+                      <p className="text-2xl font-bold text-blue-700">{dashboardStats.recent_activity_7days || 0}</p>
+                    </div>
+                    <div className="bg-indigo-50 rounded-lg p-4 border border-indigo-100">
+                      <p className="text-xs uppercase tracking-wide text-indigo-600 mb-1">Активные студенты</p>
+                      <p className="text-2xl font-bold text-indigo-700">{dashboardStats.active_students || 0}</p>
+                    </div>
+                  </CardContent>
+                </Card>
+              </div>
+
+              {dashboardStats.top_lessons && dashboardStats.top_lessons.length > 0 && (
+                <Card className="border border-gray-200 shadow-sm">
+                  <CardHeader>
+                    <CardTitle className="flex items-center gap-2 text-gray-800">
+                      <Target className="w-5 h-5 text-green-600" />
+                      Топ уроков по вовлеченности
+                    </CardTitle>
+                    <CardDescription>
+                      Уроки с наибольшим числом студентов и высоким процентом завершения
+                    </CardDescription>
+                  </CardHeader>
+                  <CardContent className="space-y-3">
+                    {dashboardStats.top_lessons.map((lesson) => (
+                      <div key={lesson.lesson_id} className="flex flex-col sm:flex-row sm:items-center justify-between bg-gray-50 border border-gray-200 rounded-lg p-3">
+                        <div>
+                          <p className="text-sm font-semibold text-gray-900">{lesson.lesson_title}</p>
+                          <p className="text-xs text-gray-600 mt-1">ID урока: {lesson.lesson_id}</p>
+                        </div>
+                        <div className="flex items-center gap-6 mt-2 sm:mt-0">
+                          <div className="text-sm text-gray-700">
+                            👥 {lesson.students_count} студентов
+                          </div>
+                          <div className="text-sm text-blue-700 font-medium">
+                            {lesson.avg_completion}% завершения
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </CardContent>
+                </Card>
+              )}
+
+              <Card className="border border-rose-200 shadow-sm">
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2 text-rose-700">
+                    <ClipboardList className="w-5 h-5" />
+                    Домашние задания, ожидающие проверки
+                  </CardTitle>
+                  <CardDescription>
+                    Ответы студентов на упражнения, которые ещё не были проверены преподавателем
+                  </CardDescription>
+                </CardHeader>
+                <CardContent>
+                  {pendingReviews.length === 0 ? (
+                    <div className="text-sm text-rose-600 bg-rose-50 border border-rose-100 rounded-lg p-4">
+                      Все домашние задания проверены! 🎉
+                    </div>
+                  ) : (
+                    <div className="space-y-3">
+                      {pendingReviews.map((item) => (
+                        <div key={item.response_id} className="border border-rose-100 bg-rose-50 rounded-lg p-4">
+                          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                            <div>
+                              <p className="text-sm font-semibold text-rose-700">{item.user_name}</p>
+                              <p className="text-xs text-rose-600">
+                                Урок: {item.lesson_title}
+                              </p>
+                              <p className="text-xs text-rose-500">
+                                Упражнение: {item.exercise_title}
+                              </p>
+                            </div>
+                            <Badge variant="outline" className="text-xs bg-white text-rose-600 border-rose-200">
+                              {formatDateTime(item.submitted_at)}
+                            </Badge>
+                          </div>
+                          {item.response_text && (
+                            <p className="text-sm text-rose-700 mt-3 bg-white/70 border border-rose-100 rounded-md p-3">
+                              {item.response_text.length > 240
+                                ? `${item.response_text.slice(0, 240)}…`
+                                : item.response_text}
+                            </p>
+                          )}
+                          <Textarea
+                            rows={3}
+                            value={reviewNotes[item.response_id] ?? ''}
+                            onChange={(e) => handleReviewNoteChange(item.response_id, e.target.value)}
+                            placeholder="Введите комментарий для студента..."
+                            className="mt-3 bg-white border border-rose-200 focus:border-rose-400 focus:ring-rose-400 text-sm"
+                          />
+                          <div className="flex justify-end gap-2 mt-2">
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() => handleReviewNoteChange(item.response_id, '')}
+                              className="border-rose-200 text-rose-600 hover:bg-rose-100"
+                              disabled={reviewSavingState[item.response_id]}
+                            >
+                              Очистить
+                            </Button>
+                            <Button
+                              size="sm"
+                              onClick={() => submitReviewResponse(item.response_id)}
+                              disabled={reviewSavingState[item.response_id]}
+                              className="bg-rose-600 hover:bg-rose-700 text-white"
+                            >
+                              {reviewSavingState[item.response_id] ? 'Отправка...' : 'Отправить ответ'}
+                            </Button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+            </>
+          ) : (
+            <div className="text-sm text-gray-500">Данные дашборда недоступны.</div>
+          )}
+        </CardContent>
+      </Card>
+
       {/* Header */}
       <Card>
         <CardHeader>
@@ -249,11 +674,26 @@ const AdminPanelV2 = () => {
                       <h3 className="font-semibold text-lg">{lesson.title}</h3>
                       <p className="text-gray-600 text-sm mb-2">{lesson.description}</p>
 
-                      <div className="flex flex-wrap gap-4 text-sm text-gray-500">
+                      <div className="flex flex-wrap gap-4 text-sm text-gray-500 mb-2">
                         <span>Уровень: {lesson.level}</span>
                         <span>Баллов: {lesson.points_required}</span>
                         <span>Активен: {lesson.is_active ? 'Да' : 'Нет'}</span>
                       </div>
+
+                      {/* Статистика файлов */}
+                      {filesStats[lesson.id] && (
+                        <div className="flex flex-wrap gap-2 mt-2">
+                          <Badge variant="outline" className="bg-purple-50 text-purple-700 border-purple-300">
+                            🎬 Медиа: {filesStats[lesson.id].media || 0}
+                          </Badge>
+                          <Badge variant="outline" className="bg-green-50 text-green-700 border-green-300">
+                            📄 Документы: {filesStats[lesson.id].documents || 0}
+                          </Badge>
+                          <Badge variant="outline" className="bg-blue-50 text-blue-700 border-blue-300">
+                            📁 Всего: {filesStats[lesson.id].total || 0}
+                          </Badge>
+                        </div>
+                      )}
                     </div>
 
                     <div className="ml-4 flex flex-col items-end gap-2">
@@ -309,7 +749,9 @@ const AdminPanelV2 = () => {
 
                     <div className="bg-indigo-50 rounded-lg p-3">
                       <Settings className="w-6 h-6 mx-auto mb-1 text-indigo-600" />
-                      <div className="text-lg font-semibold">{lesson.files?.length || 0}</div>
+                      <div className="text-lg font-semibold">
+                        {filesStats[lesson.id]?.total || 0}
+                      </div>
                       <div className="text-xs text-gray-600">Файлы</div>
                     </div>
                   </div>

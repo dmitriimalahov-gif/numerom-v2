@@ -23,19 +23,38 @@ import {
   ChevronLeft,
   Home,
   User,
-  Calculator
+  Calculator,
+  Eye,
+  Download,
+  X,
+  ExternalLink,
+  Upload,
+  Film,
+  Maximize2,
+  Minimize2,
+  Image,
+  FileSpreadsheet,
+  RotateCw,
+  RotateCcw,
+  Zap,
+  TrendingUp,
+  Award,
+  Flame,
+  CheckCircle2
 } from 'lucide-react';
 import { useAuth } from './AuthContextV2';
 import { getBackendUrl } from '../utils/backendUrl';
 
 const LearningSystemV2 = () => {
-  const { user } = useAuth();
+  const { user, isAuthenticated, loading: authLoading, isInitialized } = useAuth();
   const [lessons, setLessons] = useState([]);
   const [currentLesson, setCurrentLesson] = useState(null);
   const [currentSection, setCurrentSection] = useState('theory');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [userLevel, setUserLevel] = useState(1);
+  const [lessonsFilesStats, setLessonsFilesStats] = useState({}); // Статистика файлов для всех уроков
+  const [dashboardStats, setDashboardStats] = useState(null); // Статистика дашборда
   const [exerciseResponses, setExerciseResponses] = useState({});
   const [exerciseResponsesData, setExerciseResponsesData] = useState({}); // Полные данные ответов
   const [savingResponse, setSavingResponse] = useState({});
@@ -45,6 +64,20 @@ const LearningSystemV2 = () => {
   const [savingChallengeNote, setSavingChallengeNote] = useState({});
   const [challengeHistory, setChallengeHistory] = useState([]); // История всех попыток челленджа
   const [quizHistory, setQuizHistory] = useState([]); // История всех попыток теста
+  
+  // Состояния для файлов
+  const [lessonFiles, setLessonFiles] = useState({ theory: [], exercises: [], challenge: [], quiz: [] });
+  const [viewingFile, setViewingFile] = useState(null);
+  const [fileViewerOpen, setFileViewerOpen] = useState(false);
+  const [isFullscreen, setIsFullscreen] = useState(false);
+  const [imageRotation, setImageRotation] = useState(0); // Угол поворота изображения
+  const [videoWatchStartTime, setVideoWatchStartTime] = useState(null);
+  const [videoWatchInterval, setVideoWatchInterval] = useState(null);
+  const [studentFilesStats, setStudentFilesStats] = useState(null);
+  const [lessonFileMap, setLessonFileMap] = useState({});
+  
+  // Состояние для компактной навигации при прокрутке
+  const [isScrolled, setIsScrolled] = useState(false);
   
   // Состояния для теста
   const [quizStarted, setQuizStarted] = useState(false);
@@ -60,8 +93,49 @@ const LearningSystemV2 = () => {
   const backendUrl = getBackendUrl();
 
   useEffect(() => {
+    if (!isInitialized || authLoading || !isAuthenticated) {
+      return;
+    }
+
     loadLessons();
-  }, []);
+    loadDashboardStats();
+  }, [isInitialized, authLoading, isAuthenticated]);
+
+  useEffect(() => {
+    if (!isAuthenticated) {
+      setLessons([]);
+      setCurrentLesson(null);
+      setDashboardStats(null);
+      setLessonFiles({ theory: [], exercises: [], challenge: [], quiz: [] });
+      setStudentFilesStats(null);
+      setLoading(false);
+    }
+  }, [isAuthenticated]);
+
+  const loadDashboardStats = async () => {
+    try {
+      console.log('Loading dashboard stats...');
+      const response = await fetch(`${backendUrl}/api/student/dashboard-stats`, {
+        headers: {
+          'Authorization': `Bearer ${localStorage.getItem('token')}`,
+          'Content-Type': 'application/json'
+        }
+      });
+
+      console.log('Dashboard stats response status:', response.status);
+      
+      if (response.ok) {
+        const data = await response.json();
+        console.log('Dashboard stats data:', data);
+        setDashboardStats(data.stats);
+        console.log('Dashboard stats set successfully');
+      } else {
+        console.error('Dashboard stats response not ok:', response.status, response.statusText);
+      }
+    } catch (error) {
+      console.error('Error loading dashboard stats:', error);
+    }
+  };
 
   const loadLessons = async () => {
     try {
@@ -78,13 +152,86 @@ const LearningSystemV2 = () => {
       }
 
       const data = await response.json();
-      setLessons(data.lessons);
+      
+      // Загружаем прогресс для каждого урока
+      const lessonsWithProgress = await Promise.all(
+        data.lessons.map(async (lesson) => {
+          try {
+            const progressResponse = await fetch(
+              `${backendUrl}/api/student/lesson-progress/${lesson.id}`,
+              {
+                headers: {
+                  'Authorization': `Bearer ${localStorage.getItem('token')}`,
+                  'Content-Type': 'application/json'
+                }
+              }
+            );
+            
+            if (progressResponse.ok) {
+              const progressData = await progressResponse.json();
+              return {
+                ...lesson,
+                progress_data: progressData
+              };
+            }
+            return lesson;
+          } catch (error) {
+            console.error(`Error loading progress for lesson ${lesson.id}:`, error);
+            return lesson;
+          }
+        })
+      );
+      
+      setLessons(lessonsWithProgress);
       setUserLevel(data.user_level);
+      
+      // Загружаем статистику файлов для всех уроков
+      await loadAllLessonsFilesStats(lessonsWithProgress);
     } catch (error) {
       console.error('Error loading lessons:', error);
       setError('Ошибка загрузки уроков');
     } finally {
       setLoading(false);
+    }
+  };
+
+  // Загрузка статистики файлов для всех уроков
+  const loadAllLessonsFilesStats = async (lessons) => {
+    try {
+      const stats = {};
+      
+      // Загружаем файлы для каждого урока параллельно
+      await Promise.all(
+        lessons.map(async (lesson) => {
+          try {
+            const response = await fetch(
+              `${backendUrl}/api/student/lesson-files/${lesson.id}`,
+              {
+                headers: {
+                  'Authorization': `Bearer ${localStorage.getItem('token')}`,
+                  'Content-Type': 'application/json'
+                }
+              }
+            );
+            
+            if (response.ok) {
+              const data = await response.json();
+              const files = data.files || [];
+              const videoCount = files.filter(f => f.mime_type?.startsWith('video/') || f.file_type === 'media').length;
+              const documentCount = files.length - videoCount;
+              
+              stats[lesson.id] = { videoCount, documentCount };
+            }
+          } catch (err) {
+            console.error(`Error loading files for lesson ${lesson.id}:`, err);
+            stats[lesson.id] = { videoCount: 0, documentCount: 0 };
+          }
+        })
+      );
+      
+      setLessonsFilesStats(stats);
+    } catch (error) {
+      console.error('Error loading lessons files stats:', error);
     }
   };
 
@@ -226,6 +373,12 @@ const LearningSystemV2 = () => {
       
       // Загружаем статистику времени активности
       await loadTimeActivity(lesson.id);
+      
+      // Загружаем файлы урока
+      await loadLessonFiles(lesson.id);
+      
+      // Загружаем статистику файлов студента
+      await loadStudentFilesStats(lesson.id);
     } catch (error) {
       console.error('Error loading lesson:', error);
       setError('Ошибка загрузки урока');
@@ -371,6 +524,218 @@ const LearningSystemV2 = () => {
       console.error('Error sending time activity:', error);
     }
   };
+
+  // Загрузка файлов урока
+  const loadLessonFiles = async (lessonId) => {
+    try {
+      const response = await fetch(
+        `${backendUrl}/api/student/lesson-files/${lessonId}`,
+        {
+          headers: {
+            'Authorization': `Bearer ${localStorage.getItem('token')}`,
+            'Content-Type': 'application/json'
+          }
+        }
+      );
+
+      if (response.ok) {
+        const data = await response.json();
+        const receipt = Array.isArray(data.files) ? data.files : [];
+        
+        const filesBySection = {
+          theory: receipt.filter(f => f.section === 'theory'),
+          exercises: receipt.filter(f => f.section === 'exercises'),
+          challenge: receipt.filter(f => f.section === 'challenge'),
+          quiz: receipt.filter(f => f.section === 'quiz')
+        };
+
+        const map = {};
+        receipt.forEach(file => {
+          if (file?.id) {
+            map[file.id] = file;
+          }
+        });
+
+        setLessonFiles(filesBySection);
+        setLessonFileMap(map);
+      } else if (response.status === 404) {
+        setLessonFiles({ theory: [], exercises: [], challenge: [], quiz: [] });
+        setLessonFileMap({});
+      } else {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+    } catch (error) {
+      console.error('Error loading lesson files:', error);
+      setLessonFiles({ theory: [], exercises: [], challenge: [], quiz: [] });
+      setLessonFileMap({});
+    }
+  };
+
+  // Загрузка статистики файлов студента
+  const loadStudentFilesStats = async (lessonId) => {
+    try {
+      const response = await fetch(
+        `${backendUrl}/api/student/my-files-stats/${lessonId}`,
+        {
+          headers: {
+            'Authorization': `Bearer ${localStorage.getItem('token')}`,
+            'Content-Type': 'application/json'
+          }
+        }
+      );
+
+      if (response.ok) {
+        const data = await response.json();
+        setStudentFilesStats(data);
+      }
+    } catch (error) {
+      console.error('Error loading student files stats:', error);
+    }
+  };
+
+  // Открытие файла на просмотр
+  const handleViewFile = async (file) => {
+    setViewingFile(file);
+    setFileViewerOpen(true);
+    
+    // Отправляем событие просмотра
+    try {
+      await fetch(`${backendUrl}/api/student/file-analytics`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${localStorage.getItem('token')}`
+        },
+        body: JSON.stringify({
+          file_id: file.id,
+          lesson_id: currentLesson.id,
+          action: 'view'
+        })
+      });
+    } catch (error) {
+      console.error('Error tracking file view:', error);
+    }
+  };
+
+  // Закрытие просмотра файла
+  const handleCloseFileViewer = () => {
+    // Останавливаем трекинг видео
+    if (videoWatchInterval) {
+      clearInterval(videoWatchInterval);
+      setVideoWatchInterval(null);
+    }
+    
+    // Отправляем финальное время просмотра
+    if (videoWatchStartTime && viewingFile?.mime_type?.startsWith('video/')) {
+      const minutesWatched = Math.floor((Date.now() - videoWatchStartTime) / 60000);
+      if (minutesWatched > 0) {
+        sendVideoWatchTime(viewingFile.id, minutesWatched);
+      }
+    }
+    
+    setViewingFile(null);
+    setFileViewerOpen(false);
+    setIsFullscreen(false);
+    setImageRotation(0);
+    setVideoWatchStartTime(null);
+  };
+
+  // Отправка времени просмотра видео
+  const sendVideoWatchTime = async (fileId, minutesWatched) => {
+    try {
+      await fetch(`${backendUrl}/api/student/video-watch-time`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${localStorage.getItem('token')}`
+        },
+        body: JSON.stringify({
+          file_id: fileId,
+          lesson_id: currentLesson.id,
+          minutes_watched: minutesWatched
+        })
+      });
+    } catch (error) {
+      console.error('Error tracking video watch time:', error);
+    }
+  };
+
+  // Скачивание файла
+  const handleDownloadFile = async (file) => {
+    try {
+      // Отправляем событие скачивания
+      try {
+        await fetch(`${backendUrl}/api/student/file-analytics`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${localStorage.getItem('token')}`
+          },
+          body: JSON.stringify({
+            file_id: file.id,
+            lesson_id: currentLesson.id,
+            action: 'download'
+          })
+        });
+      } catch (analyticsError) {
+        console.error('Error tracking file download:', analyticsError);
+      }
+      
+      // Скачиваем файл
+      const response = await fetch(`${backendUrl}/api/download-file/${file.id}`, {
+        method: 'GET',
+        headers: {
+          'Authorization': `Bearer ${localStorage.getItem('token')}`
+        }
+      });
+
+      if (!response.ok) {
+        throw new Error('Ошибка при скачивании файла');
+      }
+
+      const blob = await response.blob();
+      const url = window.URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = file.original_name;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      window.URL.revokeObjectURL(url);
+    } catch (error) {
+      console.error('Error downloading file:', error);
+      alert('Ошибка при скачивании файла');
+    }
+  };
+
+  // useEffect для отслеживания прокрутки (компактная навигация)
+  useEffect(() => {
+    const handleScroll = () => {
+      setIsScrolled(window.scrollY > 50);
+    };
+    
+    window.addEventListener('scroll', handleScroll);
+    return () => window.removeEventListener('scroll', handleScroll);
+  }, []);
+
+  // useEffect для трекинга видео
+  useEffect(() => {
+    if (fileViewerOpen && viewingFile?.mime_type?.startsWith('video/')) {
+      setVideoWatchStartTime(Date.now());
+      
+      const interval = setInterval(() => {
+        sendVideoWatchTime(viewingFile.id, 1);
+      }, 60000);
+      
+      setVideoWatchInterval(interval);
+      
+      return () => {
+        if (interval) {
+          clearInterval(interval);
+        }
+      };
+    }
+  }, [fileViewerOpen, viewingFile]);
 
   // Таймер для отслеживания времени активности (каждую минуту отправляем данные)
   useEffect(() => {
@@ -585,7 +950,7 @@ const LearningSystemV2 = () => {
   };
 
   const renderLessonCard = (lesson) => {
-    const isCompleted = lesson.completed || false;
+    const isCompleted = lesson.progress_data?.is_completed || lesson.completed || false;
     const isAccessible = lesson.level <= userLevel;
     const isLocked = !isAccessible;
 
@@ -593,6 +958,9 @@ const LearningSystemV2 = () => {
     const theoryProgress = progress.theory_read_time || 0;
     const exercisesCompleted = progress.exercises_completed || 0;
     const challengeProgress = progress.challenge_progress || 0;
+    
+    // Общий прогресс урока
+    const completionPercentage = lesson.progress_data?.completion_percentage || 0;
 
     return (
       <Card key={lesson.id} className={`mb-6 border border-gray-200 bg-white shadow-sm hover:shadow-md transition-all duration-300 overflow-hidden ${!isLocked ? 'ring-2 ring-blue-400 ring-opacity-50' : ''}`}>
@@ -702,8 +1070,38 @@ const LearningSystemV2 = () => {
                   <span className="text-sm text-gray-700">Персональная аналитика</span>
                 </div>
               )}
+              {lessonsFilesStats[lesson.id]?.videoCount > 0 && (
+                <div className="flex items-center">
+                  <Film className="w-4 h-4 mr-2 flex-shrink-0" style={{ color: 'rgb(16, 185, 129)' }} />
+                  <span className="text-sm text-gray-700">{lessonsFilesStats[lesson.id].videoCount} видеофайлов</span>
+                </div>
+              )}
+              {lessonsFilesStats[lesson.id]?.documentCount > 0 && (
+                <div className="flex items-center">
+                  <FileText className="w-4 h-4 mr-2 flex-shrink-0" style={{ color: 'rgb(239, 68, 68)' }} />
+                  <span className="text-sm text-gray-700">{lessonsFilesStats[lesson.id].documentCount} документов</span>
+                </div>
+              )}
             </div>
           </div>
+
+          {/* Общий прогресс урока */}
+          {isAccessible && completionPercentage > 0 && (
+            <div className="bg-gradient-to-r from-indigo-50 to-purple-50 rounded-lg p-4 border border-indigo-200">
+              <div className="flex items-center justify-between mb-2">
+                <span className="text-sm font-medium text-indigo-900">Общий прогресс урока</span>
+                <span className="text-lg font-bold text-indigo-600">{Math.round(completionPercentage)}%</span>
+              </div>
+              <Progress value={completionPercentage} className="h-2.5" />
+              <p className="text-xs text-indigo-700 mt-2">
+                {completionPercentage === 100 ? '🎉 Урок полностью завершен!' : 
+                 completionPercentage >= 75 ? 'Отличная работа! Вы почти у цели!' :
+                 completionPercentage >= 50 ? 'Хороший прогресс! Продолжайте!' :
+                 completionPercentage >= 25 ? 'Вы на правильном пути!' :
+                 'Начните с изучения теории'}
+              </p>
+            </div>
+          )}
 
           {/* Кнопка действия */}
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pt-2">
@@ -733,56 +1131,66 @@ const LearningSystemV2 = () => {
 
     return (
       <div className="space-y-6">
-        {/* Навигация */}
-        <Card>
-          <CardHeader>
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-4">
+        {/* Навигация - фиксированная при прокрутке, компактная на мобильных */}
+        <div className={`sticky top-0 z-40 bg-white shadow-md transition-all duration-300 ${isScrolled ? 'py-1' : 'py-0'}`}>
+          <Card className="border-0 rounded-none">
+            <CardHeader className={`transition-all duration-300 ${isScrolled ? 'py-2 px-3 md:py-3 md:px-6' : 'py-3 px-4 md:py-4 md:px-6'}`}>
+              <div className="flex items-center justify-between flex-wrap gap-2 md:gap-3">
+              <div className="flex items-center gap-2 md:gap-4">
                 <Button
                   variant="outline"
                   size="sm"
                   onClick={() => setCurrentLesson(null)}
-                  className="flex items-center gap-2"
+                  className={`flex items-center gap-1 md:gap-2 transition-all ${isScrolled ? 'h-7 px-2 text-xs md:h-9 md:px-3 md:text-sm' : 'h-9 px-3'}`}
                 >
-                  <ChevronLeft className="w-4 h-4" />
-                  К списку уроков
+                  <ChevronLeft className={`${isScrolled ? 'w-3 h-3 md:w-4 md:h-4' : 'w-4 h-4'}`} />
+                  <span className="hidden sm:inline">К списку уроков</span>
+                  <span className="sm:hidden">Назад</span>
                 </Button>
-                <div className="h-6 w-px bg-gray-300"></div>
+                <div className={`w-px bg-gray-300 ${isScrolled ? 'h-4 md:h-6' : 'h-6'}`}></div>
                 <div>
-                  <h2 className="text-xl font-semibold">{currentLesson.title}</h2>
-                  <p className="text-sm text-gray-600">Уровень {currentLesson.level}</p>
+                  <h2 className={`font-semibold transition-all ${isScrolled ? 'text-sm md:text-lg' : 'text-lg md:text-xl'}`}>
+                    <span className="hidden sm:inline">{currentLesson.title}</span>
+                    <span className="sm:hidden">{currentLesson.title.length > 20 ? currentLesson.title.substring(0, 20) + '...' : currentLesson.title}</span>
+                  </h2>
+                  <p className={`text-gray-600 transition-all ${isScrolled ? 'text-xs hidden md:block' : 'text-xs md:text-sm'}`}>
+                    Уровень {currentLesson.level}
+                  </p>
                 </div>
               </div>
 
               {/* Навигация по разделам */}
-              <div className="flex gap-2">
+              <div className="flex gap-1 md:gap-2 flex-wrap">
                 <Button
                   variant={currentSection === 'theory' ? 'default' : 'outline'}
                   size="sm"
                   onClick={() => setCurrentSection('theory')}
-                  className="flex items-center gap-2"
+                  className={`flex items-center gap-1 md:gap-2 transition-all ${isScrolled ? 'h-7 px-2 text-xs md:h-9 md:px-3 md:text-sm' : 'h-9 px-3'}`}
                 >
-                  <BookOpen className="w-4 h-4" />
-                  Теория
+                  <BookOpen className={`${isScrolled ? 'w-3 h-3 md:w-4 md:h-4' : 'w-4 h-4'}`} />
+                  <span className="hidden sm:inline">Теория</span>
+                  <span className="sm:hidden">📖</span>
                 </Button>
                 <Button
                   variant={currentSection === 'exercises' ? 'default' : 'outline'}
                   size="sm"
                   onClick={() => setCurrentSection('exercises')}
-                  className="flex items-center gap-2"
+                  className={`flex items-center gap-1 md:gap-2 transition-all ${isScrolled ? 'h-7 px-2 text-xs md:h-9 md:px-3 md:text-sm' : 'h-9 px-3'}`}
                 >
-                  <Brain className="w-4 h-4" />
-                  Упражнения
+                  <Brain className={`${isScrolled ? 'w-3 h-3 md:w-4 md:h-4' : 'w-4 h-4'}`} />
+                  <span className="hidden sm:inline">Упражнения</span>
+                  <span className="sm:hidden">🧠</span>
                 </Button>
                 {currentLesson.challenge && (
                   <Button
                     variant={currentSection === 'challenge' ? 'default' : 'outline'}
                     size="sm"
                     onClick={() => setCurrentSection('challenge')}
-                    className="flex items-center gap-2"
+                    className={`flex items-center gap-1 md:gap-2 transition-all ${isScrolled ? 'h-7 px-2 text-xs md:h-9 md:px-3 md:text-sm' : 'h-9 px-3'}`}
                   >
-                    <Calendar className="w-4 h-4" />
-                    Челлендж
+                    <Calendar className={`${isScrolled ? 'w-3 h-3 md:w-4 md:h-4' : 'w-4 h-4'}`} />
+                    <span className="hidden sm:inline">Челлендж</span>
+                    <span className="sm:hidden">📅</span>
                   </Button>
                 )}
                 {currentLesson.quiz && (
@@ -790,10 +1198,37 @@ const LearningSystemV2 = () => {
                     variant={currentSection === 'quiz' ? 'default' : 'outline'}
                     size="sm"
                     onClick={() => setCurrentSection('quiz')}
-                    className="flex items-center gap-2"
+                    className={`flex items-center gap-1 md:gap-2 transition-all ${isScrolled ? 'h-7 px-2 text-xs md:h-9 md:px-3 md:text-sm' : 'h-9 px-3'}`}
                   >
-                    <Target className="w-4 h-4" />
-                    Тест
+                    <Target className={`${isScrolled ? 'w-3 h-3 md:w-4 md:h-4' : 'w-4 h-4'}`} />
+                    <span className="hidden sm:inline">Тест</span>
+                    <span className="sm:hidden">🎯</span>
+                  </Button>
+                )}
+                {/* Кнопка "Файлы" */}
+                {(lessonFiles.theory.length > 0 || lessonFiles.exercises.length > 0 || 
+                  lessonFiles.challenge.length > 0 || lessonFiles.quiz.length > 0) && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => {
+                      // Если не в теории, переключаемся на теорию
+                      if (currentSection !== 'theory') {
+                        setCurrentSection('theory');
+                      }
+                      // Прокручиваем к файлам через небольшую задержку
+                      setTimeout(() => {
+                        const filesSection = document.getElementById('files-section');
+                        if (filesSection) {
+                          filesSection.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                        }
+                      }, 100);
+                    }}
+                    className={`flex items-center gap-1 md:gap-2 bg-gradient-to-r from-blue-50 to-indigo-50 border-blue-300 text-blue-700 hover:from-blue-100 hover:to-indigo-100 transition-all ${isScrolled ? 'h-7 px-2 text-xs md:h-9 md:px-3 md:text-sm' : 'h-9 px-3'}`}
+                  >
+                    <Upload className={`${isScrolled ? 'w-3 h-3 md:w-4 md:h-4' : 'w-4 h-4'}`} />
+                    <span className="hidden sm:inline">Файлы</span>
+                    <span className="sm:hidden">📁</span>
                   </Button>
                 )}
                 {currentLesson.analytics_enabled && (
@@ -801,16 +1236,18 @@ const LearningSystemV2 = () => {
                     variant={currentSection === 'analytics' ? 'default' : 'outline'}
                     size="sm"
                     onClick={() => setCurrentSection('analytics')}
-                    className="flex items-center gap-2"
+                    className={`flex items-center gap-1 md:gap-2 transition-all ${isScrolled ? 'h-7 px-2 text-xs md:h-9 md:px-3 md:text-sm' : 'h-9 px-3'}`}
                   >
-                    <BarChart3 className="w-4 h-4" />
-                    Аналитика
+                    <BarChart3 className={`${isScrolled ? 'w-3 h-3 md:w-4 md:h-4' : 'w-4 h-4'}`} />
+                    <span className="hidden sm:inline">Аналитика</span>
+                    <span className="sm:hidden">📊</span>
                   </Button>
                 )}
               </div>
             </div>
           </CardHeader>
         </Card>
+        </div>
 
         {/* Содержимое разделов */}
         {currentSection === 'theory' && renderTheorySection()}
@@ -818,6 +1255,174 @@ const LearningSystemV2 = () => {
         {currentSection === 'challenge' && renderChallengeSection()}
         {currentSection === 'quiz' && renderQuizSection()}
         {currentSection === 'analytics' && renderAnalyticsSection()}
+      </div>
+    );
+  };
+
+  // Функция для подсчета файлов урока
+  const getLessonFilesCount = (lessonId) => {
+    const allFiles = [
+      ...(lessonFiles.theory || []),
+      ...(lessonFiles.exercises || []),
+      ...(lessonFiles.challenge || []),
+      ...(lessonFiles.quiz || [])
+    ];
+    
+    const videoCount = allFiles.filter(f => f.mime_type?.startsWith('video/')).length;
+    const documentCount = allFiles.filter(f => 
+      f.extension === 'pdf' || 
+      f.extension === 'doc' || 
+      f.extension === 'docx' || 
+      f.extension === 'xls' || 
+      f.extension === 'xlsx' || 
+      f.extension === 'txt'
+    ).length;
+    
+    return { videoCount, documentCount };
+  };
+
+  // Функция для получения цвета и иконки файла
+  const getFileStyle = (file) => {
+    const ext = file.extension?.toLowerCase();
+    
+    // PDF - красный
+    if (ext === 'pdf') {
+      return {
+        color: 'rgb(239, 68, 68)',
+        bgColor: 'rgb(254, 226, 226)',
+        icon: <FileText className="w-4 h-4" style={{ color: 'rgb(239, 68, 68)' }} />
+      };
+    }
+    // Word - синий
+    if (ext === 'doc' || ext === 'docx') {
+      return {
+        color: 'rgb(59, 130, 246)',
+        bgColor: 'rgb(219, 234, 254)',
+        icon: <FileText className="w-4 h-4" style={{ color: 'rgb(59, 130, 246)' }} />
+      };
+    }
+    // Excel - зелёный
+    if (ext === 'xls' || ext === 'xlsx') {
+      return {
+        color: 'rgb(34, 197, 94)',
+        bgColor: 'rgb(220, 252, 231)',
+        icon: <FileSpreadsheet className="w-4 h-4" style={{ color: 'rgb(34, 197, 94)' }} />
+      };
+    }
+    // TXT - серый
+    if (ext === 'txt') {
+      return {
+        color: 'rgb(107, 114, 128)',
+        bgColor: 'rgb(243, 244, 246)',
+        icon: <FileText className="w-4 h-4" style={{ color: 'rgb(107, 114, 128)' }} />
+      };
+    }
+    // Видео - зелёный (мягкий)
+    if (file.mime_type?.startsWith('video/')) {
+      return {
+        color: 'rgb(16, 185, 129)',
+        bgColor: 'rgb(209, 250, 229)',
+        icon: <Film className="w-4 h-4" style={{ color: 'rgb(16, 185, 129)' }} />
+      };
+    }
+    // Изображения - розовый
+    if (file.mime_type?.startsWith('image/')) {
+      return {
+        color: 'rgb(236, 72, 153)',
+        bgColor: 'rgb(252, 231, 243)',
+        icon: <Image className="w-4 h-4" style={{ color: 'rgb(236, 72, 153)' }} />
+      };
+    }
+    // По умолчанию - синий
+    return {
+      color: 'rgb(59, 130, 246)',
+      bgColor: 'rgb(219, 234, 254)',
+      icon: <FileText className="w-4 h-4" style={{ color: 'rgb(59, 130, 246)' }} />
+    };
+  };
+
+  // Рендеринг файлов для раздела
+  const renderFilesSection = (sectionName) => {
+    const files = lessonFiles[sectionName] || [];
+    
+    if (files.length === 0) return null;
+    
+    return (
+      <div className="mt-6 p-4 bg-gradient-to-r from-blue-50 to-indigo-50 rounded-lg border border-blue-200">
+        <h3 className="text-lg font-semibold mb-4 flex items-center gap-2">
+          <Upload className="w-5 h-5 text-blue-600" />
+          Файлы и материалы ({files.length})
+        </h3>
+        
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-3" id="files-section">
+          {files.map((file) => {
+            const fileStyle = getFileStyle(file);
+            return (
+              <div 
+                key={file.id} 
+                className="bg-white p-4 rounded-lg border-2 hover:shadow-lg transition-all"
+                style={{ borderColor: fileStyle.color }}
+              >
+                <div className="flex items-start justify-between mb-3">
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2 mb-2">
+                      <div 
+                        className="p-2 rounded-lg flex-shrink-0"
+                        style={{ backgroundColor: fileStyle.bgColor }}
+                      >
+                        {fileStyle.icon}
+                      </div>
+                      <p className="text-sm font-medium text-gray-900 truncate">{file.original_name}</p>
+                    </div>
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <Badge 
+                        variant="outline" 
+                        className="text-xs border-0"
+                        style={{ 
+                          backgroundColor: fileStyle.bgColor,
+                          color: fileStyle.color
+                        }}
+                      >
+                        {file.extension?.toUpperCase()}
+                      </Badge>
+                      <span className="text-xs text-gray-500">
+                        {(file.file_size / 1024 / 1024).toFixed(2)} МБ
+                      </span>
+                    </div>
+                  </div>
+                </div>
+                
+                <div className="flex gap-2">
+                  <Button
+                    size="sm"
+                    onClick={() => handleViewFile(file)}
+                    className="flex-1 text-white"
+                    style={{ 
+                      backgroundColor: fileStyle.color,
+                      borderColor: fileStyle.color
+                    }}
+                  >
+                    <Eye className="w-4 h-4 mr-1" />
+                    Просмотр
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => handleDownloadFile(file)}
+                    className="flex-1"
+                    style={{ 
+                      borderColor: fileStyle.color,
+                      color: fileStyle.color
+                    }}
+                  >
+                    <Download className="w-4 h-4 mr-1" />
+                    Скачать
+                  </Button>
+                </div>
+              </div>
+            );
+          })}
+        </div>
       </div>
     );
   };
@@ -844,32 +1449,13 @@ const LearningSystemV2 = () => {
                 </p>
               </div>
 
-              {/* Файлы для этого блока */}
-              {currentLesson.files?.filter(f => f.lesson_section === 'theory').length > 0 && (
-                <div className="mt-4 pt-4 border-t border-gray-200">
-                  <h4 className="text-sm font-medium mb-2">Материалы для изучения:</h4>
-                  <div className="flex gap-2">
-                    {currentLesson.files
-                      .filter(f => f.lesson_section === 'theory')
-                      .map(file => (
-                        <Button
-                          key={file.id}
-                          variant="outline"
-                          size="sm"
-                          className="flex items-center gap-2"
-                        >
-                          {file.file_type === 'pdf' && <FileText className="w-4 h-4" />}
-                          {file.file_type === 'video' && <Video className="w-4 h-4" />}
-                          {file.original_filename}
-                        </Button>
-                      ))}
-                  </div>
-                </div>
-              )}
             </div>
           ))}
 
-          <div className="flex justify-end">
+          {/* Файлы для теории */}
+          {renderFilesSection('theory')}
+
+          <div className="flex justify-end mt-6">
             <Button
               onClick={() => setCurrentSection('exercises')}
               className="flex items-center gap-2"
@@ -1083,8 +1669,11 @@ const LearningSystemV2 = () => {
                 <ChevronRight className="w-4 h-4" />
               </Button>
             )}
-            </div>
           </div>
+          </div>
+          
+          {/* Файлы для упражнений */}
+          {renderFilesSection('exercises')}
         </CardContent>
       </Card>
     );
@@ -1315,6 +1904,9 @@ const LearningSystemV2 = () => {
               </Button>
             )}
           </div>
+          
+          {/* Файлы для челленджа */}
+          {renderFilesSection('challenge')}
         </CardContent>
       </Card>
     );
@@ -1579,6 +2171,9 @@ const LearningSystemV2 = () => {
               </AlertDescription>
             </Alert>
           )}
+          
+          {/* Файлы для теста */}
+          {renderFilesSection('quiz')}
         </CardContent>
       </Card>
     );
@@ -1602,6 +2197,9 @@ const LearningSystemV2 = () => {
 
     // Подсчет комментариев от преподавателя
     const reviewedExercises = Object.values(exerciseResponsesData).filter(r => r?.reviewed && r?.admin_comment).length;
+    
+    // Проверка загрузки данных
+    const isLoadingStats = !studentFilesStats && lessonFiles.theory.length === 0;
 
     return (
       <Card>
@@ -1615,6 +2213,15 @@ const LearningSystemV2 = () => {
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-6">
+          {/* Индикатор загрузки */}
+          {isLoadingStats && (
+            <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 text-center">
+              <div className="flex items-center justify-center gap-3">
+                <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-blue-600"></div>
+                <p className="text-blue-700 font-medium">Загрузка статистики...</p>
+              </div>
+            </div>
+          )}
           {/* Общий прогресс */}
           <div className="bg-gradient-to-r from-indigo-50 to-purple-50 rounded-lg p-6 border border-indigo-200">
             <div className="flex items-center justify-between mb-4">
@@ -1637,7 +2244,7 @@ const LearningSystemV2 = () => {
               <Trophy className="w-6 h-6 text-yellow-600" />
               Заработанные баллы
               </h4>
-            <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+            <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
               {/* Баллы за челленджи */}
               {challengeHistory.length > 0 && (
                 <div className="bg-white rounded-lg p-4 border border-yellow-200">
@@ -1684,6 +2291,22 @@ const LearningSystemV2 = () => {
                 </p>
               </div>
               
+              {/* Баллы за видео */}
+              {studentFilesStats && studentFilesStats.summary.total_video_points > 0 && (
+                <div className="bg-white rounded-lg p-4 border border-pink-200">
+                  <div className="flex items-center gap-2 mb-2">
+                    <Eye className="w-5 h-5 text-pink-600" />
+                    <p className="text-sm font-medium text-gray-700">Видео</p>
+                  </div>
+                  <p className="text-3xl font-bold text-pink-600">
+                    {studentFilesStats.summary.total_video_points} 🎬
+                  </p>
+                  <p className="text-xs text-gray-600 mt-1">
+                    {studentFilesStats.summary.total_video_minutes} минут
+                  </p>
+                </div>
+              )}
+              
               {/* Общая сумма */}
               <div className="bg-gradient-to-br from-yellow-400 to-orange-400 rounded-lg p-4 border-2 border-yellow-500 text-white">
                 <div className="flex items-center gap-2 mb-2">
@@ -1693,7 +2316,8 @@ const LearningSystemV2 = () => {
                 <p className="text-4xl font-bold">
                   {(challengeHistory.reduce((sum, a) => sum + (a.points_earned || 0), 0) +
                     quizHistory.reduce((sum, a) => sum + (a.points_earned || 0), 0) +
-                    timeActivity.total_points)} ⭐
+                    timeActivity.total_points +
+                    (studentFilesStats?.summary.total_video_points || 0))} ⭐
                 </p>
                 <p className="text-xs mt-1 opacity-90">
                   Общий результат
@@ -2027,8 +2651,8 @@ const LearningSystemV2 = () => {
                         <p className="text-xs text-gray-600">
                           {attempt.score}%
                         </p>
-                      </div>
-                    </div>
+            </div>
+          </div>
                     
                     {/* Прогресс-бар */}
                     <div className="mb-3">
@@ -2113,6 +2737,123 @@ const LearningSystemV2 = () => {
               )}
             </div>
           </div>
+
+          {/* Статистика файлов */}
+          {studentFilesStats && studentFilesStats.summary.total_files > 0 && (
+            <div className="bg-gradient-to-r from-blue-50 to-indigo-50 rounded-lg p-6 border border-blue-200">
+              <h4 className="font-semibold text-blue-900 text-lg mb-4 flex items-center gap-2">
+                <Upload className="w-6 h-6 text-blue-600" />
+                Статистика работы с файлами
+              </h4>
+              
+              {/* Общая статистика */}
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
+                <div className="bg-white rounded-lg p-4 border border-blue-200 text-center">
+                  <p className="text-3xl font-bold text-blue-600">{studentFilesStats.summary.total_files}</p>
+                  <p className="text-sm text-gray-600 mt-1">Всего файлов</p>
+                </div>
+                <div className="bg-white rounded-lg p-4 border border-green-200 text-center">
+                  <p className="text-3xl font-bold text-green-600">{studentFilesStats.summary.total_views}</p>
+                  <p className="text-sm text-gray-600 mt-1">Просмотров</p>
+                </div>
+                <div className="bg-white rounded-lg p-4 border border-purple-200 text-center">
+                  <p className="text-3xl font-bold text-purple-600">{studentFilesStats.summary.total_downloads}</p>
+                  <p className="text-sm text-gray-600 mt-1">Скачиваний</p>
+                </div>
+                <div className="bg-white rounded-lg p-4 border border-yellow-200 text-center">
+                  <p className="text-3xl font-bold text-yellow-600">{studentFilesStats.summary.total_video_points} 🎬</p>
+                  <p className="text-sm text-gray-600 mt-1">Баллов за видео</p>
+                </div>
+              </div>
+              
+              {/* Детальная статистика по файлам */}
+              {studentFilesStats.files.length > 0 && (
+                <div className="space-y-4">
+                  <h5 className="font-medium text-gray-700">Материалы урока:</h5>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                    {studentFilesStats.files.map((file) => {
+                      const baseFile = lessonFileMap[file.file_id];
+                        const fallbackFile = baseFile || {
+                          id: file.file_id,
+                          original_name: file.file_name,
+                          mime_type: file.mime_type || '',
+                          extension: file.file_name?.split('.').pop() || '',
+                          file_size: 0
+                        };
+                      const fileStyle = getFileStyle(fallbackFile);
+                      const canOpen = Boolean(baseFile);
+
+                      return (
+                        <div
+                          key={file.file_id}
+                          className="bg-white rounded-lg p-4 border-2 shadow-sm flex flex-col gap-3"
+                          style={{ borderColor: fileStyle.color }}
+                        >
+                          <div className="flex items-start gap-3">
+                            <div
+                              className="p-2 rounded-lg flex-shrink-0"
+                              style={{ backgroundColor: fileStyle.bgColor }}
+                            >
+                              {fileStyle.icon}
+                            </div>
+                            <div className="min-w-0 flex-1">
+                              <p className="text-sm font-semibold text-gray-900 truncate">{file.file_name}</p>
+                              <div className="flex flex-wrap items-center gap-2 text-xs text-gray-500 mt-1">
+                                <span>Раздел: {file.section || '—'}</span>
+                                <span>Просмотров: {file.views}</span>
+                                <span>Скачиваний: {file.downloads}</span>
+                                {file.video_stats && (
+                                  <span className="text-purple-600">
+                                    🎬 {file.video_stats.minutes_watched} мин • {file.video_stats.points_earned} баллов
+                                  </span>
+                                )}
+                              </div>
+                            </div>
+                          </div>
+
+                          <div className="flex gap-2">
+                            <Button
+                              size="sm"
+                              onClick={() => baseFile && handleViewFile(baseFile)}
+                              disabled={!canOpen}
+                              className="flex-1 text-white"
+                              style={{
+                                backgroundColor: canOpen ? fileStyle.color : '#CBD5F5',
+                                borderColor: canOpen ? fileStyle.color : '#CBD5F5'
+                              }}
+                            >
+                              <Eye className="w-4 h-4 mr-1" />
+                              Просмотр
+                            </Button>
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              onClick={() => baseFile && handleDownloadFile(baseFile)}
+                              disabled={!canOpen}
+                              className="flex-1"
+                              style={{
+                                borderColor: fileStyle.color,
+                                color: canOpen ? fileStyle.color : '#9CA3AF'
+                              }}
+                            >
+                              <Download className="w-4 h-4 mr-1" />
+                              Скачать
+                            </Button>
+                          </div>
+
+                          {!canOpen && (
+                            <p className="text-xs text-gray-500">
+                              * Файл недоступен для просмотра. Обратитесь к администратору.
+                            </p>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
 
           <div className="flex justify-between items-center">
             {currentLesson.quiz ? (
@@ -2213,18 +2954,203 @@ const LearningSystemV2 = () => {
             </p>
           </div>
 
-          {/* Уровень пользователя */}
-          <Card className="mb-8">
+          {/* Дашборд студента */}
+          {dashboardStats ? (
+            <div className="mb-8 space-y-6">
+              {/* Hero Section - Уровень и прогресс */}
+              <Card className="bg-gradient-to-br from-blue-600 via-indigo-600 to-purple-600 text-white border-0 shadow-xl overflow-hidden relative">
+                <div className="absolute top-0 right-0 w-64 h-64 bg-white/10 rounded-full -translate-y-32 translate-x-32"></div>
+                <div className="absolute bottom-0 left-0 w-48 h-48 bg-white/10 rounded-full translate-y-24 -translate-x-24"></div>
+                <CardContent className="pt-8 pb-8 relative z-10">
+                  <div className="text-center">
+                    <div className="text-6xl mb-4">{['🌱', '📚', '🎓', '⭐', '👑'][dashboardStats.level - 1] || '🌱'}</div>
+                    <h2 className="text-3xl font-bold mb-2">Уровень {dashboardStats.level} - {dashboardStats.level_name}</h2>
+                    <p className="text-xl text-white/90 mb-6">{dashboardStats.total_points} баллов</p>
+                    <div className="max-w-md mx-auto">
+                      <div className="flex justify-between text-sm mb-2">
+                        <span>Прогресс до следующего уровня</span>
+                        <span>{dashboardStats.progress_to_next_level}%</span>
+                      </div>
+                      <Progress value={dashboardStats.progress_to_next_level} className="h-3 bg-white/20" />
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+
+              {/* Quick Stats */}
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+                {/* Уроки */}
+                <Card className="hover:shadow-lg transition-shadow">
             <CardContent className="pt-6">
+                    <div className="flex items-center justify-between mb-4">
+                      <div className="p-3 bg-blue-100 rounded-lg">
+                        <BookOpen className="w-6 h-6 text-blue-600" />
+                      </div>
+                      <Badge variant="outline" className="text-xs">
+                        {dashboardStats.completed_lessons}/{dashboardStats.total_lessons}
+                      </Badge>
+                    </div>
+                    <h3 className="text-2xl font-bold text-gray-900 mb-1">{dashboardStats.completed_lessons}</h3>
+                    <p className="text-sm text-gray-600">Уроков завершено</p>
+                    <Progress value={(dashboardStats.completed_lessons / dashboardStats.total_lessons) * 100} className="mt-3 h-2" />
+                  </CardContent>
+                </Card>
+
+                {/* Челленджи */}
+                <Card className="hover:shadow-lg transition-shadow">
+                  <CardContent className="pt-6">
+                    <div className="flex items-center justify-between mb-4">
+                      <div className="p-3 bg-purple-100 rounded-lg">
+                        <Zap className="w-6 h-6 text-purple-600" />
+                      </div>
+                      <Badge variant="outline" className="text-xs bg-purple-50">
+                        {dashboardStats.total_challenge_points} баллов
+                      </Badge>
+                    </div>
+                    <h3 className="text-2xl font-bold text-gray-900 mb-1">{dashboardStats.total_challenge_attempts}</h3>
+                    <p className="text-sm text-gray-600">Челленджей пройдено</p>
+                  </CardContent>
+                </Card>
+
+                {/* Тесты */}
+                <Card className="hover:shadow-lg transition-shadow">
+                  <CardContent className="pt-6">
+                    <div className="flex items-center justify-between mb-4">
+                      <div className="p-3 bg-green-100 rounded-lg">
+                        <Target className="w-6 h-6 text-green-600" />
+                      </div>
+                      <Badge variant="outline" className="text-xs bg-green-50">
+                        {dashboardStats.total_quiz_points} баллов
+                      </Badge>
+                    </div>
+                    <h3 className="text-2xl font-bold text-gray-900 mb-1">{dashboardStats.total_quiz_attempts}</h3>
+                    <p className="text-sm text-gray-600">Тестов пройдено</p>
+                  </CardContent>
+                </Card>
+
+                {/* Упражнения */}
+                <Card className="hover:shadow-lg transition-shadow">
+                  <CardContent className="pt-6">
+                    <div className="flex items-center justify-between mb-4">
+                      <div className="p-3 bg-orange-100 rounded-lg">
+                        <Brain className="w-6 h-6 text-orange-600" />
+                      </div>
+                    </div>
+                    <h3 className="text-2xl font-bold text-gray-900 mb-1">{dashboardStats.total_exercises_completed}</h3>
+                    <p className="text-sm text-gray-600">Упражнений выполнено</p>
+                  </CardContent>
+                </Card>
+              </div>
+
+              {/* Разбивка баллов */}
+              {dashboardStats.points_breakdown && (
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="flex items-center gap-2">
+                      <TrendingUp className="w-5 h-5 text-blue-600" />
+                      Разбивка баллов
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                      {/* Челленджи */}
+                      <div className="bg-gradient-to-br from-purple-50 to-purple-100 p-4 rounded-lg border border-purple-200">
+                        <div className="flex items-center gap-2 mb-2">
+                          <Zap className="w-5 h-5 text-purple-600" />
+                          <p className="text-sm font-medium text-gray-700">Челленджи</p>
+                        </div>
+                        <p className="text-2xl font-bold text-purple-600">
+                          {dashboardStats.points_breakdown.challenges || 0}
+                        </p>
+                        <p className="text-xs text-gray-600 mt-1">баллов</p>
+                      </div>
+
+                      {/* Тесты */}
+                      <div className="bg-gradient-to-br from-green-50 to-green-100 p-4 rounded-lg border border-green-200">
+                        <div className="flex items-center gap-2 mb-2">
+                          <Target className="w-5 h-5 text-green-600" />
+                          <p className="text-sm font-medium text-gray-700">Тесты</p>
+                        </div>
+                        <p className="text-2xl font-bold text-green-600">
+                          {dashboardStats.points_breakdown.quizzes || 0}
+                        </p>
+                        <p className="text-xs text-gray-600 mt-1">баллов</p>
+                      </div>
+
+                      {/* Время */}
+                      <div className="bg-gradient-to-br from-blue-50 to-blue-100 p-4 rounded-lg border border-blue-200">
+                        <div className="flex items-center gap-2 mb-2">
+                          <Clock className="w-5 h-5 text-blue-600" />
+                          <p className="text-sm font-medium text-gray-700">Время</p>
+                        </div>
+                        <p className="text-2xl font-bold text-blue-600">
+                          {dashboardStats.points_breakdown.time || 0}
+                        </p>
+                        <p className="text-xs text-gray-600 mt-1">баллов</p>
+                        <p className="text-xs text-gray-500">
+                          {dashboardStats.points_breakdown.time_minutes || 0} минут
+                        </p>
+                      </div>
+
+                      {/* Видео */}
+                      <div className="bg-gradient-to-br from-orange-50 to-orange-100 p-4 rounded-lg border border-orange-200">
+                        <div className="flex items-center gap-2 mb-2">
+                          <Eye className="w-5 h-5 text-orange-600" />
+                          <p className="text-sm font-medium text-gray-700">Видео</p>
+                        </div>
+                        <p className="text-2xl font-bold text-orange-600">
+                          {dashboardStats.points_breakdown.videos || 0}
+                        </p>
+                        <p className="text-xs text-gray-600 mt-1">баллов</p>
+                        <p className="text-xs text-gray-500">
+                          {dashboardStats.points_breakdown.video_minutes || 0} минут просмотра
+                        </p>
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+              )}
+
+              {/* Достижения (компактная версия) */}
+              {dashboardStats.achievements && dashboardStats.achievements.length > 0 && (
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="flex items-center gap-2">
+                      <Trophy className="w-5 h-5 text-yellow-600" />
+                      Достижения
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="flex flex-wrap gap-3">
+                      {dashboardStats.achievements.filter(a => a.earned).slice(0, 6).map((achievement) => (
+                        <div
+                          key={achievement.id}
+                          className="flex items-center gap-2 bg-gradient-to-br from-yellow-50 to-orange-50 px-4 py-2 rounded-lg border border-yellow-200"
+                        >
+                          <span className="text-2xl">{achievement.icon}</span>
+                          <div>
+                            <p className="text-sm font-semibold text-gray-900">{achievement.title}</p>
+                            <p className="text-xs text-gray-600">{achievement.description}</p>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </CardContent>
+                </Card>
+              )}
+            </div>
+          ) : (
+            <Card className="mb-8">
+              <CardContent className="pt-6 pb-6">
               <div className="text-center">
-                <div className="text-2xl font-bold text-blue-600 mb-2">
-                  Уровень {userLevel}
+                  <div className="animate-pulse flex flex-col items-center gap-3">
+                    <BarChart3 className="w-12 h-12 text-blue-600" />
+                    <p className="text-gray-600">Загрузка статистики...</p>
                 </div>
-                <p className="text-gray-600">Ваш текущий уровень обучения</p>
-                <Progress value={(userLevel / 10) * 100} className="mt-4 max-w-md mx-auto" />
               </div>
             </CardContent>
           </Card>
+          )}
 
           {/* Список уроков */}
           <div className="space-y-6">
@@ -2243,6 +3169,198 @@ const LearningSystemV2 = () => {
             </div>
           )}
         </>
+      )}
+      
+      {/* Модальное окно просмотра файлов */}
+      {fileViewerOpen && viewingFile && (
+        <div className="fixed inset-0 bg-black bg-opacity-70 flex items-center justify-center z-50 p-4">
+          <div 
+            className={`bg-white rounded-lg flex flex-col shadow-2xl transition-all ${
+              isFullscreen 
+                ? 'w-full h-full max-w-full max-h-full' 
+                : 'max-w-6xl w-full h-[95vh]'
+            }`}
+          >
+            {/* Заголовок */}
+            <div className="border-b border-gray-200 px-6 py-4 bg-gradient-to-r from-blue-50 to-indigo-50 flex-shrink-0">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  {(() => {
+                    const fileStyle = getFileStyle(viewingFile);
+                    return (
+                      <div 
+                        className="p-2 rounded-lg"
+                        style={{ backgroundColor: fileStyle.bgColor }}
+                      >
+                        {fileStyle.icon}
+                      </div>
+                    );
+                  })()}
+                  <div>
+                    <h2 className="text-xl font-semibold flex items-center gap-2">
+                      Просмотр файла
+                    </h2>
+                    <p className="text-sm text-gray-600 mt-1">
+                      {viewingFile.original_name} • {(viewingFile.file_size / 1024 / 1024).toFixed(2)} МБ
+                    </p>
+                  </div>
+                </div>
+                <div className="flex items-center gap-2">
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => setIsFullscreen(!isFullscreen)}
+                    className="text-gray-500 hover:text-gray-700"
+                    title={isFullscreen ? "Свернуть" : "Развернуть на весь экран"}
+                  >
+                    {isFullscreen ? (
+                      <Minimize2 className="w-5 h-5" />
+                    ) : (
+                      <Maximize2 className="w-5 h-5" />
+                    )}
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={handleCloseFileViewer}
+                    className="text-gray-500 hover:text-gray-700"
+                  >
+                    <X className="w-5 h-5" />
+                  </Button>
+                </div>
+              </div>
+            </div>
+
+            {/* Содержимое */}
+            <div className="flex-1 overflow-auto p-6 bg-gray-50">
+              {/* Изображения */}
+              {viewingFile.mime_type?.startsWith('image/') && (
+                <div className="flex items-center justify-center h-full">
+                  <div 
+                    className="relative"
+                    style={{ transform: `rotate(${imageRotation}deg)`, transition: 'transform 0.3s ease' }}
+                  >
+                    <img
+                      src={`${backendUrl}/uploads/learning_v2/${viewingFile.stored_name}`}
+                      alt={viewingFile.original_name}
+                      className="max-w-full max-h-full object-contain rounded-lg shadow-lg"
+                    />
+                  </div>
+                </div>
+              )}
+
+              {/* Видео */}
+              {viewingFile.mime_type?.startsWith('video/') && (
+                <div className="flex items-center justify-center h-full">
+                  <video
+                    controls
+                    className="max-w-full max-h-full rounded-lg shadow-lg"
+                    src={`${backendUrl}/uploads/learning_v2/${viewingFile.stored_name}`}
+                  >
+                    Ваш браузер не поддерживает воспроизведение видео.
+                  </video>
+                </div>
+              )}
+
+              {/* PDF */}
+              {viewingFile.extension === 'pdf' && (
+                <iframe
+                  src={`${backendUrl}/uploads/learning_v2/${viewingFile.stored_name}`}
+                  className="w-full h-full rounded-lg shadow-lg"
+                  title={viewingFile.original_name}
+                />
+              )}
+
+              {/* Текстовые файлы */}
+              {viewingFile.mime_type?.startsWith('text/') && (
+                <div className="bg-white p-6 rounded-lg shadow-lg h-full overflow-auto">
+                  <iframe
+                    src={`${backendUrl}/uploads/learning_v2/${viewingFile.stored_name}`}
+                    className="w-full h-full border-0"
+                    title={viewingFile.original_name}
+                  />
+                </div>
+              )}
+
+              {/* Документы Word, Excel */}
+              {(viewingFile.extension === 'doc' || 
+                viewingFile.extension === 'docx' || 
+                viewingFile.extension === 'xls' || 
+                viewingFile.extension === 'xlsx') && (
+                <div className="flex flex-col items-center justify-center h-full gap-4">
+                  <FileText className="w-24 h-24 text-gray-400" />
+                  <p className="text-lg font-semibold text-gray-700">
+                    Просмотр {viewingFile.extension.toUpperCase()} файлов в браузере не поддерживается
+                  </p>
+                  <p className="text-sm text-gray-500 mb-4">
+                    Скачайте файл для просмотра
+                  </p>
+                  <Button
+                    onClick={() => handleDownloadFile(viewingFile)}
+                    className="bg-green-600 hover:bg-green-700 text-white"
+                  >
+                    <Download className="w-4 h-4 mr-2" />
+                    Скачать файл
+                  </Button>
+                </div>
+              )}
+            </div>
+
+            {/* Футер */}
+            <div className="border-t border-gray-200 px-6 py-4 bg-gray-50 flex gap-2 justify-between items-center">
+              {/* Кнопки поворота (только для изображений) */}
+              {viewingFile.mime_type?.startsWith('image/') && (
+                <div className="flex gap-2">
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => setImageRotation((prev) => (prev - 90) % 360)}
+                    title="Повернуть влево"
+                  >
+                    <RotateCcw className="w-4 h-4 mr-2" />
+                    Повернуть влево
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => setImageRotation((prev) => (prev + 90) % 360)}
+                    title="Повернуть вправо"
+                  >
+                    <RotateCw className="w-4 h-4 mr-2" />
+                    Повернуть вправо
+                  </Button>
+                </div>
+              )}
+              
+              {/* Основные кнопки */}
+              <div className="flex gap-2 ml-auto">
+                <Button
+                  variant="outline"
+                  onClick={handleCloseFileViewer}
+                >
+                  <X className="w-4 h-4 mr-2" />
+                  Закрыть
+                </Button>
+                <Button
+                  onClick={() => handleDownloadFile(viewingFile)}
+                  className="bg-green-600 hover:bg-green-700 text-white"
+                >
+                  <Download className="w-4 h-4 mr-2" />
+                  Скачать
+                </Button>
+                <Button
+                  onClick={() => {
+                    window.open(`${backendUrl}/uploads/learning_v2/${viewingFile.stored_name}`, '_blank');
+                  }}
+                  className="bg-blue-600 hover:bg-blue-700 text-white"
+                >
+                  <ExternalLink className="w-4 h-4 mr-2" />
+                  Открыть в новой вкладке
+                </Button>
+              </div>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );
